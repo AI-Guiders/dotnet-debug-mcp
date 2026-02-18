@@ -1,5 +1,7 @@
 # DotnetDebugMcp
 
+**Автор:** Дмитрий Каратаев (Dmitry Karataev)
+
 MCP-сервер для отладки .NET (C#) через **DAP** (netcoredbg): брейкпоинты, запуск, стек, переменные, шаги, continue/stop.
 
 ## Требования
