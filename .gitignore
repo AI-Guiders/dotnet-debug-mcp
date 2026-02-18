@@ -5,3 +5,4 @@ publish/
 *.user
 *.suo
 *.nupkg
+.dotnet-debug-mcp-breakpoints.json

@@ -1,0 +1,9 @@
+{
+  "dotnet-debug": {
+    "command": "D:\\dotnet-debug-mcp\\publish\\DotnetDebugMcp.exe",
+    "args": [],
+    "env": {
+      "NETCOREDBG_PATH": "C:\\Users\\USER\\scoop\\shims\\netcoredbg.cmd"
+    }
+  }
+}
