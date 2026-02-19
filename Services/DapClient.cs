@@ -10,10 +10,9 @@ using System.Text.RegularExpressions;
 namespace DotnetDebugMcp.Services;
 
 /// <summary>Минимальный DAP-клиент: обмен сообщениями с debug adapter (netcoredbg) по stdio. Content-Length + JSON-RPC. Фоновый поток читает события (stopped и т.д.).</summary>
-public sealed partial class DapClient : IAsyncDisposable
+public sealed class DapClient : IAsyncDisposable
 {
-    [GeneratedRegex(@"Content-Length:\s*(\d+)", RegexOptions.IgnoreCase)]
-    private static partial Regex ContentLengthRegex();
+    private static readonly Regex ContentLengthRegex = new(@"Content-Length:\s*(\d+)", RegexOptions.IgnoreCase);
     private readonly Stream _writer;
     private readonly Stream _reader;
     private readonly Process _process;
@@ -228,13 +227,17 @@ public sealed partial class DapClient : IAsyncDisposable
 
     public async Task LaunchAsync(string program, string? cwd = null, IReadOnlyList<string>? args = null, CancellationToken cancellationToken = default)
     {
+        var fullProgram = Path.GetFullPath(program);
         var arguments = new Dictionary<string, object?>
         {
-            ["program"] = Path.GetFullPath(program),
-            ["cwd"] = string.IsNullOrWhiteSpace(cwd) ? Path.GetDirectoryName(Path.GetFullPath(program)) : Path.GetFullPath(cwd!)
+            ["program"] = fullProgram,
+            ["cwd"] = string.IsNullOrWhiteSpace(cwd) ? Path.GetDirectoryName(fullProgram) ?? fullProgram : Path.GetFullPath(cwd!)
         };
         if (args is { Count: > 0 })
             arguments["args"] = args;
+        // Запуск .dll через dotnet, иначе на Windows возможна 0x800700c1 (неверный образ exe)
+        if (fullProgram.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            arguments["runtimeExecutable"] = "dotnet";
         await SendRequestAsync("launch", arguments, cancellationToken).ConfigureAwait(false);
     }
 
@@ -264,6 +267,15 @@ public sealed partial class DapClient : IAsyncDisposable
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>DAP setExceptionBreakpoints: остановка при исключениях. filters — например ["unhandled"] или ["all"].</summary>
+    public async Task SetExceptionBreakpointsAsync(IReadOnlyList<string> filters, CancellationToken cancellationToken = default)
+    {
+        await SendRequestAsync("setExceptionBreakpoints", new Dictionary<string, object?>
+        {
+            ["filters"] = filters
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ConfigurationDoneAsync(CancellationToken cancellationToken = default)
     {
         await SendRequestAsync("configurationDone", null, cancellationToken).ConfigureAwait(false);
@@ -290,7 +302,7 @@ public sealed partial class DapClient : IAsyncDisposable
                 break;
         }
         var headerStr = Encoding.UTF8.GetString(CollectionsMarshal.AsSpan(headerBuilder));
-        var match = ContentLengthRegex().Match(headerStr);
+        var match = ContentLengthRegex.Match(headerStr);
         if (!match.Success)
             throw new InvalidOperationException("DAP: missing Content-Length in response.");
         var length = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
