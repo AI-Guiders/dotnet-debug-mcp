@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -27,6 +28,9 @@ public sealed partial class DapClient : IAsyncDisposable
 
     /// <summary>Вызывается при получении события от адаптера (например stopped). body — тело события.</summary>
     public Action<string, JsonElement>? OnEvent { get; set; }
+
+    /// <summary>Вызывается при обрыве связи (netcoredbg завершён снаружи, stream closed). Позволяет сбросить сессию и не ронять MCP.</summary>
+    public Action? OnConnectionLost { get; set; }
 
     private DapClient(Process process, Stream reader, Stream writer)
     {
@@ -66,6 +70,18 @@ public sealed partial class DapClient : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex) when (IsConnectionLost(ex))
+        {
+            foreach (var kv in _pendingResponses)
+                kv.Value.TrySetResult(new DapResponseResult(false, ex.Message, null));
+            OnConnectionLost?.Invoke();
+        }
+    }
+
+    private static bool IsConnectionLost(Exception ex)
+    {
+        return ex is IOException or EndOfStreamException or ObjectDisposedException
+            || (ex is InvalidOperationException && ex.Message.Contains("stream ended", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Запускает netcoredbg с --interpreter=vscode и возвращает клиент для DAP по stdio. Фоновый read loop стартует сразу.</summary>
