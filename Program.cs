@@ -233,12 +233,19 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     if (string.IsNullOrWhiteSpace(netcoredbgPath))
         netcoredbgPath = "netcoredbg";
 
-    var programPath = Path.GetFullPath(targetPath!);
+    var workspaceRoot = Path.GetFullPath(workspacePath!.Trim());
+    if (File.Exists(workspaceRoot))
+        workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+    var programPath = Path.IsPathRooted(targetPath!.Trim())
+        ? Path.GetFullPath(targetPath)
+        : Path.GetFullPath(Path.Combine(workspaceRoot, targetPath.Trim()));
     if (!File.Exists(programPath))
         throw new ArgumentException($"Target not found: {programPath}");
 
     var breakpoints = BreakpointsStorage.GetBreakpoints(workspacePath!, targetPath!).ToList();
-    var byFile = breakpoints.GroupBy(b => Path.GetFullPath(b.File)).ToDictionary(g => g.Key, g => g.Select(b => (b.Line, b.Condition)).ToList());
+    var byFile = breakpoints
+        .GroupBy(b => ResolveBreakpointFilePath(workspaceRoot, b.File))
+        .ToDictionary(g => g.Key, g => g.Select(b => (b.Line, b.Condition)).ToList());
 
     IReadOnlyList<string>? programArgs = null;
     if (args.TryGetValue("program_args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
@@ -252,6 +259,14 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     }
 
     var client = await DapClient.StartAsync(netcoredbgPath).ConfigureAwait(false);
+    client.OnConnectionLost = () =>
+    {
+        if (DebugSession.CurrentClient == client)
+        {
+            DebugSession.CurrentClient = null;
+            DebugSession.LastStoppedThreadId = 0;
+        }
+    };
     DebugSession.PrepareStoppedWait();
     var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     client.OnEvent = (eventName, body) =>
@@ -413,10 +428,13 @@ async Task<string> HandleDebugStop(IReadOnlyDictionary<string, JsonElement> _)
     var client = DebugSession.CurrentClient;
     if (client == null)
         return "# No active debug session; nothing to stop.";
+    var threadId = DebugSession.LastStoppedThreadId;
     DebugSession.CurrentClient = null;
     DebugSession.LastStoppedThreadId = 0;
+    if (threadId != 0)
+        try { await client.ContinueAsync(threadId).ConfigureAwait(false); } catch { /* целевой процесс продолжит выполнение перед отключением */ }
     await client.DisposeAsync().ConfigureAwait(false);
-    return "# Debug session stopped; client disposed.";
+    return "# Debug session stopped; target resumed, client disposed.";
 }
 
 async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement> _)
@@ -557,6 +575,17 @@ static string FormatException(Exception ex)
         msg += "\nInner: " + ex.InnerException.Message;
     msg += "\n" + ex.StackTrace;
     return msg;
+}
+
+/// <summary>Путь к исходнику для DAP: совпадает с путями в PDB при сборке из workspace.</summary>
+static string ResolveBreakpointFilePath(string workspaceRoot, string filePath)
+{
+    if (string.IsNullOrWhiteSpace(filePath))
+        return Path.GetFullPath(filePath);
+    var trimmed = filePath.Trim();
+    if (Path.IsPathRooted(trimmed))
+        return Path.GetFullPath(trimmed);
+    return Path.GetFullPath(Path.Combine(workspaceRoot, trimmed));
 }
 
 bool TryGetString(IReadOnlyDictionary<string, JsonElement> args, string key, out string? value)
