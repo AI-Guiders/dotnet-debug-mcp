@@ -282,6 +282,7 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
         {
             DebugSession.CurrentClient = null;
             DebugSession.LastStoppedThreadId = 0;
+            DebugSession.LastExceptionText = null;
         }
     };
     DebugSession.PrepareStoppedWait();
@@ -290,7 +291,9 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     {
         if (eventName == "stopped" && body.TryGetProperty("threadId", out var tid))
         {
-            DebugSession.OnStopped(tid.GetInt32());
+            var reason = body.TryGetProperty("reason", out var r) ? r.GetString() : null;
+            var exceptionText = (reason == "exception" && body.TryGetProperty("text", out var txt)) ? txt.GetString() : null;
+            DebugSession.OnStopped(tid.GetInt32(), exceptionText);
             stoppedTcs.TrySetResult();
         }
         else if (eventName == "continued")
@@ -304,6 +307,7 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
+        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
         await client.ConfigurationDoneAsync().ConfigureAwait(false);
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
@@ -345,8 +349,11 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     sb.AppendLine("# Debug session started");
     sb.AppendLine($"# Program: {programPath}");
     sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
+    sb.AppendLine("# Exception breakpoints: unhandled (stop on throw)");
     if (!stopped)
         sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops, or check that the target hits a breakpoint. First thread id used as fallback if available.)");
+    else if (DebugSession.LastExceptionText is { } exMsg)
+        sb.AppendLine($"# Stopped on exception: {exMsg}");
     sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
     return sb.ToString();
 }
@@ -385,6 +392,7 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
         {
             DebugSession.CurrentClient = null;
             DebugSession.LastStoppedThreadId = 0;
+            DebugSession.LastExceptionText = null;
         }
     };
     DebugSession.PrepareStoppedWait();
@@ -393,7 +401,9 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
     {
         if (eventName == "stopped" && body.TryGetProperty("threadId", out var tid))
         {
-            DebugSession.OnStopped(tid.GetInt32());
+            var reason = body.TryGetProperty("reason", out var r) ? r.GetString() : null;
+            var exceptionText = (reason == "exception" && body.TryGetProperty("text", out var txt)) ? txt.GetString() : null;
+            DebugSession.OnStopped(tid.GetInt32(), exceptionText);
             stoppedTcs.TrySetResult();
         }
         else if (eventName == "continued")
@@ -407,6 +417,7 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
+        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
         await client.ConfigurationDoneAsync().ConfigureAwait(false);
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
@@ -448,8 +459,11 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
     sb.AppendLine("# Debug session started (attach)");
     sb.AppendLine($"# Process ID: {processId}");
     sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
+    sb.AppendLine("# Exception breakpoints: unhandled (stop on throw)");
     if (!stopped)
         sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops.)");
+    else if (DebugSession.LastExceptionText is { } exMsg)
+        sb.AppendLine($"# Stopped on exception: {exMsg}");
     sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
     return sb.ToString();
 }
@@ -792,6 +806,8 @@ static class DebugSession
 {
     public static DapClient? CurrentClient { get; set; }
     public static int LastStoppedThreadId { get; set; }
+    /// <summary>Текст последнего исключения при остановке по reason=exception (для вывода агенту).</summary>
+    public static string? LastExceptionText { get; set; }
 
     private static TaskCompletionSource? _currentStoppedTcs;
     private static readonly object StoppedLock = new();
@@ -805,10 +821,11 @@ static class DebugSession
         }
     }
 
-    /// <summary>Вызывается из read loop при событии stopped. Обновляет threadId и даёт сигнал ожидающим.</summary>
-    public static void OnStopped(int threadId)
+    /// <summary>Вызывается из read loop при событии stopped. Обновляет threadId, при необходимости — текст исключения, и даёт сигнал ожидающим.</summary>
+    public static void OnStopped(int threadId, string? exceptionText = null)
     {
         LastStoppedThreadId = threadId;
+        LastExceptionText = exceptionText;
         lock (StoppedLock)
         {
             var t = _currentStoppedTcs;
@@ -821,6 +838,7 @@ static class DebugSession
     public static void OnContinued()
     {
         LastStoppedThreadId = 0;
+        LastExceptionText = null;
     }
 
     /// <summary>Ждать следующего события stopped (или вернуться сразу, если уже paused). Таймаут — исключение TimeoutException.</summary>
