@@ -47,6 +47,7 @@ dotnet publish DotnetDebugMcp.csproj -c Release -o publish
 ## Рекомендации по отладке
 
 - **Собирай цель в Debug**, не Release: путь к `bin/Debug/net10.0/YourApp.dll` в target_path и при set_breakpoints. Иначе брейкпоинты могут не срабатывать (пути в PDB).
+- **Пути:** `file_path` в брейкпоинтах и `target_path` могут быть относительными — они разрешаются относительно **workspace_path**, чтобы совпадать с путями в PDB при сборке из этого каталога.
 - Если целевая программа без аргументов сразу выходит — передай **program_args** (например `["dummy"]`), чтобы выполнение дошло до нужной строки.
 
 ## Пример сценария
@@ -65,6 +66,18 @@ dotnet publish DotnetDebugMcp.csproj -c Release -o publish
 - При вызове **debug_stack_trace**, **debug_variables**, **debug_step_*** без остановки сервер ждёт следующее **stopped** (до 5 с).
 - При временных ошибках DAP (например «target is running», 0x80004005) запросы повторяются до 3 раз с паузой 250 ms.
 - Событие **continued** сбрасывает «текущий поток»; следующий stack_trace/variables снова ждут **stopped**.
+
+## Отпускание приложения
+
+- Чтобы приложение снова выполнялось после остановки на брейкпоинте — вызывай **debug_continue**. После этого можно снова вызывать stack_trace/variables (сервер будет ждать следующего stopped до 5 с).
+- **debug_stop** перед отключением отправляет **continue** целевой программе, чтобы она не оставалась зависшей. После stop сессия завершена; для новой отладки нужен снова **debug_launch**.
+- В глубоких стеках **debug_step_over** / **debug_step_into** иногда могут оставить приложение без ответа; в таком случае вызови **debug_stop** (он сделает continue и отключится) или заверши процесс netcoredbg снаружи. При обрыве netcoredbg сервер сбрасывает сессию (OnConnectionLost) и не падает.
+
+## Планы (что не покрыто)
+
+1. Проверить **debug_step_into** и **debug_step_out**, а также **debug_stop** после step.
+2. Прогнать условный брейкпоинт (**condition** в set_breakpoints) и **program_args** при launch.
+3. При желании — таймаут/отмена для DAP-запросов; уточнить в доке про параллельные вызовы stack_trace/variables.
 
 ## Лицензия
 
