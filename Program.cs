@@ -100,6 +100,23 @@ var toolsList = new List<Tool>
     },
     new()
     {
+        Name = "debug_attach",
+        Description = "Подключиться к уже запущенному .NET-процессу по PID (DAP attach). Опционально target_path — загрузить сохранённые брейкпоинты для этого target.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                workspace_path = new { type = "string", description = "Каталог с .dotnet-debug-mcp-breakpoints.json (нужен при указании target_path)." },
+                process_id = new { type = "integer", description = "PID процесса .NET, к которому подключаемся." },
+                target_path = new { type = "string", description = "Опционально. Путь к .dll/.exe целевого процесса — для загрузки брейкпоинтов из JSON (тот же ключ, что при set_breakpoints)." },
+                netcoredbg_path = new { type = "string", description = "Опционально. Путь к netcoredbg." }
+            },
+            required = new[] { "workspace_path", "process_id" }
+        })
+    },
+    new()
+    {
         Name = "debug_continue",
         Description = "Продолжить выполнение после остановки на брейкпоинте (DAP continue). Требуется активная сессия после debug_launch.",
         InputSchema = emptySchema
@@ -330,6 +347,109 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
     if (!stopped)
         sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops, or check that the target hits a breakpoint. First thread id used as fallback if available.)");
+    sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
+    return sb.ToString();
+}
+
+async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> args)
+{
+    if (!TryGetString(args, "workspace_path", out var workspacePath) || string.IsNullOrWhiteSpace(workspacePath))
+        throw new ArgumentException("workspace_path is required.");
+    if (!args.TryGetValue("process_id", out var pidEl) || !pidEl.TryGetInt32(out var processId) || processId <= 0)
+        throw new ArgumentException("process_id (positive integer) is required.");
+
+    var netcoredbgPath = Environment.GetEnvironmentVariable("NETCOREDBG_PATH")?.Trim();
+    if (TryGetString(args, "netcoredbg_path", out var customPath) && !string.IsNullOrWhiteSpace(customPath))
+        netcoredbgPath = customPath;
+    if (string.IsNullOrWhiteSpace(netcoredbgPath))
+        netcoredbgPath = "netcoredbg";
+
+    var workspaceRoot = Path.GetFullPath(workspacePath!.Trim());
+    if (File.Exists(workspaceRoot))
+        workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
+
+    var breakpoints = new List<BreakpointsStorage.BreakpointEntry>();
+    var byFile = new Dictionary<string, List<(int Line, string? Condition)>>();
+    if (TryGetString(args, "target_path", out var targetPath) && !string.IsNullOrWhiteSpace(targetPath))
+    {
+        breakpoints = BreakpointsStorage.GetBreakpoints(workspacePath, targetPath).ToList();
+        byFile = breakpoints
+            .GroupBy(b => ResolveBreakpointFilePath(workspaceRoot, b.File))
+            .ToDictionary(g => g.Key, g => g.Select(b => (b.Line, b.Condition)).ToList());
+    }
+
+    var client = await DapClient.StartAsync(netcoredbgPath).ConfigureAwait(false);
+    client.OnConnectionLost = () =>
+    {
+        if (DebugSession.CurrentClient == client)
+        {
+            DebugSession.CurrentClient = null;
+            DebugSession.LastStoppedThreadId = 0;
+        }
+    };
+    DebugSession.PrepareStoppedWait();
+    var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    client.OnEvent = (eventName, body) =>
+    {
+        if (eventName == "stopped" && body.TryGetProperty("threadId", out var tid))
+        {
+            DebugSession.OnStopped(tid.GetInt32());
+            stoppedTcs.TrySetResult();
+        }
+        else if (eventName == "continued")
+            DebugSession.OnContinued();
+    };
+    try
+    {
+        await client.AttachAsync(processId).ConfigureAwait(false);
+        foreach (var (file, list) in byFile)
+        {
+            if (list.Count > 0)
+                await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
+        }
+        await client.ConfigurationDoneAsync().ConfigureAwait(false);
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+    }
+    catch (TimeoutException)
+    {
+        stoppedTcs.TrySetResult();
+    }
+    catch
+    {
+        await client.DisposeAsync().ConfigureAwait(false);
+        throw;
+    }
+
+    DebugSession.CurrentClient = client;
+
+    var stopped = DebugSession.LastStoppedThreadId != 0;
+    if (!stopped)
+    {
+        try
+        {
+            var threadsBody = await client.ThreadsAsync().ConfigureAwait(false);
+            if (threadsBody != null && threadsBody.Value.TryGetProperty("threads", out var threadsArr))
+            {
+                foreach (var t in threadsArr.EnumerateArray())
+                {
+                    if (t.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var tid))
+                    {
+                        DebugSession.LastStoppedThreadId = tid;
+                        stopped = true;
+                        break;
+                    }
+                }
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    var sb = new StringBuilder();
+    sb.AppendLine("# Debug session started (attach)");
+    sb.AppendLine($"# Process ID: {processId}");
+    sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
+    if (!stopped)
+        sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops.)");
     sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
     return sb.ToString();
 }
@@ -638,6 +758,7 @@ var options = new McpServerOptions
                     "debug_list_breakpoints" => HandleListBreakpoints(args),
                     "debug_clear_breakpoints" => HandleClearBreakpoints(args),
                     "debug_launch" => await HandleDebugLaunch(args),
+                    "debug_attach" => await HandleDebugAttach(args),
                     "debug_continue" => await HandleDebugContinue(args),
                     "debug_step_over" => await HandleDebugStepOver(args),
                     "debug_step_into" => await HandleDebugStepInto(args),

@@ -36,6 +36,7 @@ dotnet publish DotnetDebugMcp.csproj -c Release -o publish
 | **debug_list_breakpoints** | Показать сохранённые брейкпоинты (по workspace, опционально по target_path). |
 | **debug_clear_breakpoints** | Удалить брейкпоинты (по workspace или по target_path). |
 | **debug_launch** | Запустить отладку: workspace_path, target_path; опционально **netcoredbg_path**, **program_args** (массив строк — аргументы для целевой программы). Загружает брейкпоинты, передаёт в DAP setBreakpoints, ждёт первого события stopped (до 5 с). |
+| **debug_attach** | Подключиться к уже запущенному .NET-процессу по **process_id** (PID). workspace_path обязателен; опционально **target_path** (путь к .dll/.exe процесса) — тогда загружаются сохранённые брейкпоинты для этого target. |
 | **debug_continue** | Продолжить выполнение (DAP continue). |
 | **debug_step_over** | Шаг через строку (DAP next). |
 | **debug_step_into** | Шаг в вызов (DAP stepIn). |

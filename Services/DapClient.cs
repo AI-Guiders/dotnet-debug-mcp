@@ -238,6 +238,15 @@ public sealed partial class DapClient : IAsyncDisposable
         await SendRequestAsync("launch", arguments, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>DAP attach: подключиться к уже запущенному .NET-процессу по PID.</summary>
+    public async Task AttachAsync(int processId, CancellationToken cancellationToken = default)
+    {
+        await SendRequestAsync("attach", new Dictionary<string, object?>
+        {
+            ["processId"] = processId
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task SetBreakpointsAsync(string sourcePath, IReadOnlyList<(int Line, string? Condition)> breakpoints, CancellationToken cancellationToken = default)
     {
         var path = Path.GetFullPath(sourcePath);
