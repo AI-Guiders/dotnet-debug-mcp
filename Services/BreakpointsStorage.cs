@@ -30,9 +30,18 @@ public static class BreakpointsStorage
         return Path.Combine(dir, FileName);
     }
 
-    private static string NormalizeTarget(string targetPath)
+    /// <summary>Единый ключ для target: при относительном пути — относительно workspace, чтобы set (relative) и launch (absolute) находили одни и те же брейкпоинты.</summary>
+    private static string NormalizeTarget(string workspacePath, string targetPath)
     {
-        return Path.GetFullPath(targetPath.Trim());
+        var t = targetPath.Trim();
+        if (string.IsNullOrEmpty(t))
+            return t;
+        if (Path.IsPathRooted(t))
+            return Path.GetFullPath(t);
+        var ws = Path.GetFullPath(workspacePath.Trim());
+        if (File.Exists(ws))
+            ws = Path.GetDirectoryName(ws) ?? ws;
+        return Path.GetFullPath(Path.Combine(ws, t));
     }
 
     public static StorageModel Load(string workspacePath)
@@ -63,7 +72,7 @@ public static class BreakpointsStorage
     public static void SetBreakpoints(string workspacePath, string targetPath, IReadOnlyList<BreakpointEntry> breakpoints)
     {
         var model = Load(workspacePath);
-        var key = NormalizeTarget(targetPath);
+        var key = NormalizeTarget(workspacePath, targetPath);
         model.Targets[key] = breakpoints.ToList();
         Save(workspacePath, model);
     }
@@ -75,7 +84,7 @@ public static class BreakpointsStorage
         {
             return model.Targets.Values.SelectMany(x => x).ToList();
         }
-        var key = NormalizeTarget(targetPath);
+        var key = NormalizeTarget(workspacePath, targetPath);
         return model.Targets.TryGetValue(key, out var list) ? list : Array.Empty<BreakpointEntry>();
     }
 
@@ -88,7 +97,7 @@ public static class BreakpointsStorage
         }
         else
         {
-            var key = NormalizeTarget(targetPath);
+            var key = NormalizeTarget(workspacePath, targetPath);
             model.Targets.Remove(key);
         }
         Save(workspacePath, model);
