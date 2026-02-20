@@ -148,19 +148,160 @@ var toolsList = new List<Tool>
     new()
     {
         Name = "debug_stack_trace",
-        Description = "Стек вызовов текущего потока (DAP stackTrace). Вызывать когда выполнение остановлено на брейкпоинте. Возвращает кадры: имя, файл, строка. Опционально frame_index для debug_variables.",
-        InputSchema = emptySchema
-    },
-    new()
-    {
-        Name = "debug_variables",
-        Description = "Переменные кадра (DAP variables). Вызывать когда остановлены. Без аргументов — переменные верхнего кадра (frame_index=0). Или передать frame_index (0-based) по стеку из debug_stack_trace.",
+        Description = "Стек вызовов текущего потока (DAP stackTrace). Вызывать когда выполнение остановлено на брейкпоинте. Возвращает кадры: имя, файл, строка. Опционально wait_seconds (после step_over на await увеличь, напр. 30).",
         InputSchema = Schema(new
         {
             type = "object",
             properties = new
             {
-                frame_index = new { type = "integer", description = "Индекс кадра в стеке (0 = верхний). По умолчанию 0." }
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки (по умолчанию 5). После step_over на строке с await — увеличь (например 30)." }
+            },
+            required = Array.Empty<string>()
+        })
+    },
+    new()
+    {
+        Name = "debug_variables",
+        Description = "Переменные кадра (DAP variables). Вызывать когда остановлены. Без аргументов — переменные верхнего кадра (frame_index=0). Опционально wait_seconds после step_over на await.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                frame_index = new { type = "integer", description = "Индекс кадра в стеке (0 = верхний). По умолчанию 0." },
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки (по умолчанию 5). После step_over на строке с await — увеличь (например 30)." }
+            },
+            required = Array.Empty<string>()
+        })
+    },
+    new()
+    {
+        Name = "debug_pause",
+        Description = "Приостановить выполнение (DAP pause). Остановить поток без брейкпоинта — например если приложение зациклилось. Требуется активная сессия.",
+        InputSchema = emptySchema
+    },
+    new()
+    {
+        Name = "debug_terminate",
+        Description = "Завершить отлаживаемый процесс (DAP terminate). Сессия netcoredbg остаётся; для новой отладки — debug_launch. Требуется активная сессия.",
+        InputSchema = emptySchema
+    },
+    new()
+    {
+        Name = "debug_evaluate",
+        Description = "Вычислить выражение C# в контексте текущего кадра (DAP evaluate). Например: \"x + 1\", \"items.Count\". Опционально frame_index (0 = верхний кадр).",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                expression = new { type = "string", description = "Выражение C# для вычисления." },
+                frame_index = new { type = "integer", description = "Индекс кадра (по умолчанию 0)." },
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки." }
+            },
+            required = new[] { "expression" }
+        })
+    },
+    new()
+    {
+        Name = "debug_scopes",
+        Description = "Области видимости кадра (DAP scopes): имена и variablesReference. Нужны для debug_set_variable (передать variables_reference области, например Locals). Опционально frame_index.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                frame_index = new { type = "integer", description = "Индекс кадра (по умолчанию 0)." },
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки." }
+            },
+            required = Array.Empty<string>()
+        })
+    },
+    new()
+    {
+        Name = "debug_set_variable",
+        Description = "Изменить значение переменной при остановке (DAP setVariable). variables_reference — reference области (из debug_scopes, например Locals). name — имя переменной, value — новое значение (строка C#).",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                variables_reference = new { type = "integer", description = "DAP variablesReference области (из debug_scopes)." },
+                name = new { type = "string", description = "Имя переменной." },
+                value = new { type = "string", description = "Новое значение (выражение C#)." }
+            },
+            required = new[] { "variables_reference", "name", "value" }
+        })
+    },
+    new()
+    {
+        Name = "debug_set_expression",
+        Description = "Установить значение выражения в контексте кадра (DAP setExpression). Например expression=\"x\", value=\"10\". Опционально frame_index.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                expression = new { type = "string", description = "Имя переменной или выражение (левая часть)." },
+                value = new { type = "string", description = "Новое значение (правая часть)." },
+                frame_index = new { type = "integer", description = "Индекс кадра (по умолчанию 0)." },
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки." }
+            },
+            required = new[] { "expression", "value" }
+        })
+    },
+    new()
+    {
+        Name = "debug_exception_info",
+        Description = "Детали исключения для текущего потока (DAP exceptionInfo). Вызывать когда остановка по исключению (reason=exception). Возвращает exceptionId, description, details.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                wait_seconds = new { type = "integer", description = "Секунд ожидания остановки." }
+            },
+            required = Array.Empty<string>()
+        })
+    },
+    new()
+    {
+        Name = "debug_set_function_breakpoints",
+        Description = "Установить брейкпоинты по имени метода (DAP setFunctionBreakpoints). name — полное имя метода, например \"MyNamespace.MyClass.MyMethod\" или \"Module!Method\". Опционально condition для каждого.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                breakpoints = new
+                {
+                    type = "array",
+                    description = "Список: name (обязательно), condition (опционально).",
+                    items = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            name = new { type = "string" },
+                            condition = new { type = "string" }
+                        },
+                        required = new[] { "name" }
+                    }
+                }
+            },
+            required = new[] { "breakpoints" }
+        })
+    },
+    new()
+    {
+        Name = "debug_cancel",
+        Description = "Отменить последний отправленный DAP-запрос (DAP cancel). Использовать, когда долго выполняется step_over, stack_trace, variables, continue и т.д. — netcoredbg прервёт запрос в очереди. Опционально request_id (seq запроса), иначе отменяется последний отправленный.",
+        InputSchema = Schema(new
+        {
+            type = "object",
+            properties = new
+            {
+                request_id = new { type = "integer", description = "Опционально. DAP request_seq для отмены; без указания — отмена последнего отправленного запроса." }
             },
             required = Array.Empty<string>()
         })
@@ -527,34 +668,40 @@ async Task<string> HandleDebugContinue(IReadOnlyDictionary<string, JsonElement> 
     return "# Continued execution.";
 }
 
-async Task<string> HandleDebugStepOver(IReadOnlyDictionary<string, JsonElement> _)
+async Task<string> HandleDebugStepOver(IReadOnlyDictionary<string, JsonElement> _, CancellationToken ct)
 {
-    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled (target may still be running). Call debug_stack_trace again when stopped."; }
     catch (TimeoutException) { return "# Timeout (5s) waiting for execution to stop."; }
     var (client, threadId) = GetSessionAndThreadId();
     try { await WithRetryVoidAsync(() => client.NextAsync(threadId)).ConfigureAwait(false); }
     catch (InvalidOperationException ex) { return "# " + ex.Message; }
-    return "# Step over sent; execution will stop at next line.";
+    DebugSession.LastCommandWasStep = true;
+    return "# Step over sent; execution will stop at next line. If the current line is an await, execution runs until the async call completes — next stack_trace/variables uses 15s wait by default.";
 }
 
-async Task<string> HandleDebugStepInto(IReadOnlyDictionary<string, JsonElement> _)
+async Task<string> HandleDebugStepInto(IReadOnlyDictionary<string, JsonElement> _, CancellationToken ct)
 {
-    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled (target may still be running). Call debug_stack_trace again when stopped."; }
     catch (TimeoutException) { return "# Timeout (5s) waiting for execution to stop."; }
     var (client, threadId) = GetSessionAndThreadId();
     try { await WithRetryVoidAsync(() => client.StepInAsync(threadId)).ConfigureAwait(false); }
     catch (InvalidOperationException ex) { return "# " + ex.Message; }
-    return "# Step into sent; execution will stop inside the call.";
+    DebugSession.LastCommandWasStep = true;
+    return "# Step into sent; execution will stop inside the call. Next stack_trace/variables uses 15s wait by default if needed.";
 }
 
-async Task<string> HandleDebugStepOut(IReadOnlyDictionary<string, JsonElement> _)
+async Task<string> HandleDebugStepOut(IReadOnlyDictionary<string, JsonElement> _, CancellationToken ct)
 {
-    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled (target may still be running). Call debug_stack_trace again when stopped."; }
     catch (TimeoutException) { return "# Timeout (5s) waiting for execution to stop."; }
     var (client, threadId) = GetSessionAndThreadId();
     try { await WithRetryVoidAsync(() => client.StepOutAsync(threadId)).ConfigureAwait(false); }
     catch (InvalidOperationException ex) { return "# " + ex.Message; }
-    return "# Step out sent; execution will stop at caller.";
+    DebugSession.LastCommandWasStep = true;
+    return "# Step out sent; execution will stop at caller. Next stack_trace/variables uses 15s wait by default if needed.";
 }
 
 async Task<string> HandleDebugStop(IReadOnlyDictionary<string, JsonElement> _)
@@ -565,21 +712,27 @@ async Task<string> HandleDebugStop(IReadOnlyDictionary<string, JsonElement> _)
     var threadId = DebugSession.LastStoppedThreadId;
     DebugSession.CurrentClient = null;
     DebugSession.LastStoppedThreadId = 0;
+    DebugSession.LastCommandWasStep = false;
     if (threadId != 0)
         try { await client.ContinueAsync(threadId).ConfigureAwait(false); } catch { /* целевой процесс продолжит выполнение перед отключением */ }
     await client.DisposeAsync().ConfigureAwait(false);
     return "# Debug session stopped; target resumed, client disposed.";
 }
 
-async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement> _)
+async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
 {
+    var waitSec = GetWaitSeconds(args);
     try
     {
-        await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+        return "# Request cancelled (target may still be running). Call debug_stack_trace again when stopped.";
     }
     catch (TimeoutException)
     {
-        return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
+        return $"# Timeout ({waitSec}s) waiting for execution to stop. If you stepped over an await, the target may still be running the async call — call again with wait_seconds=30 or run debug_continue and try after the next break.";
     }
     var (client, threadId) = GetSessionAndThreadId();
     JsonElement? body;
@@ -596,9 +749,11 @@ async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement
     var sb = new StringBuilder();
     sb.AppendLine("# Stack trace");
     var i = 0;
+    string? topFrameName = null;
     foreach (var f in frames.EnumerateArray())
     {
         var name = f.TryGetProperty("name", out var n) ? n.GetString() : "?";
+        if (i == 0) topFrameName = name;
         var line = f.TryGetProperty("line", out var ln) ? ln.GetInt32() : 0;
         var path = "";
         if (f.TryGetProperty("source", out var src) && src.TryGetProperty("path", out var p))
@@ -607,18 +762,25 @@ async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement
         sb.AppendLine($"  [{i}] {name} — {path}:{line} (id={id})");
         i++;
     }
+    if (topFrameName != null && (topFrameName.Contains("MoveNext", StringComparison.Ordinal) || topFrameName.Contains("d__", StringComparison.Ordinal)))
+        sb.AppendLine("# (Async state machine; next step_over may run until await completes — 15s wait is used by default after step.)");
     return sb.ToString();
 }
 
-async Task<string> HandleDebugVariables(IReadOnlyDictionary<string, JsonElement> args)
+async Task<string> HandleDebugVariables(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
 {
+    var waitSec = GetWaitSeconds(args);
     try
     {
-        await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+        return "# Request cancelled (target may still be running). Call debug_variables again when stopped.";
     }
     catch (TimeoutException)
     {
-        return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
+        return $"# Timeout ({waitSec}s) waiting for execution to stop. If you stepped over an await, call again with wait_seconds=30 or run debug_continue and try after the next break.";
     }
     var (client, threadId) = GetSessionAndThreadId();
     var frameIndex = 0;
@@ -702,6 +864,190 @@ async Task<string> HandleDebugVariables(IReadOnlyDictionary<string, JsonElement>
     return sb.ToString();
 }
 
+async Task<string> HandleDebugCancel(IReadOnlyDictionary<string, JsonElement> args)
+{
+    var client = DebugSession.CurrentClient ?? throw new InvalidOperationException("No active debug session. Run debug_launch first.");
+    var requestId = client.LastSentRequestId;
+    if (args.TryGetValue("request_id", out var ridEl) && ridEl.ValueKind == JsonValueKind.Number && ridEl.TryGetInt32(out var rid) && rid > 0)
+        requestId = rid;
+    if (requestId <= 0)
+        return "# Nothing to cancel (no request has been sent yet in this session).";
+    var (success, message) = await client.CancelRequestAsync(requestId).ConfigureAwait(false);
+    if (success)
+        return "# Cancel sent; the request was cancelled or already finished.";
+    return "# Cancel sent; adapter reported: " + (message ?? "request not found or not cancellable");
+}
+
+async Task<string> HandleDebugPause(IReadOnlyDictionary<string, JsonElement> _)
+{
+    var client = DebugSession.CurrentClient ?? throw new InvalidOperationException("No active debug session. Run debug_launch first.");
+    var threadId = DebugSession.LastStoppedThreadId;
+    if (threadId == 0)
+    {
+        var threadsBody = await client.ThreadsAsync().ConfigureAwait(false);
+        if (threadsBody == null || !threadsBody.Value.TryGetProperty("threads", out var threadsArr))
+            throw new InvalidOperationException("Could not get threads for pause.");
+        var first = threadsArr.EnumerateArray().FirstOrDefault();
+        if (!first.TryGetProperty("id", out var idEl) || !idEl.TryGetInt32(out threadId) || threadId == 0)
+            throw new InvalidOperationException("No thread to pause.");
+    }
+    await client.PauseAsync(threadId).ConfigureAwait(false);
+    return "# Pause sent; execution will stop shortly. Then use debug_stack_trace or debug_variables.";
+}
+
+async Task<string> HandleDebugTerminate(IReadOnlyDictionary<string, JsonElement> _)
+{
+    var client = DebugSession.CurrentClient ?? throw new InvalidOperationException("No active debug session. Run debug_launch first.");
+    await client.TerminateAsync().ConfigureAwait(false);
+    return "# Target process terminated. Session still active; use debug_launch to start a new run.";
+}
+
+async Task<string> HandleDebugEvaluate(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
+{
+    if (!TryGetString(args, "expression", out var expression) || string.IsNullOrWhiteSpace(expression))
+        throw new ArgumentException("expression is required.");
+    var waitSec = GetWaitSeconds(args);
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled."; }
+    catch (TimeoutException) { return $"# Timeout ({waitSec}s)."; }
+    var (client, threadId) = GetSessionAndThreadId();
+    int? frameId = null;
+    if (args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var frameIndex) && frameIndex != 0)
+    {
+        var stackBody = await WithRetryAsync(() => client.StackTraceAsync(threadId)).ConfigureAwait(false);
+        if (stackBody != null && stackBody.Value.TryGetProperty("stackFrames", out var frames))
+        {
+            var frameList = frames.EnumerateArray().ToList();
+            if (frameIndex >= 0 && frameIndex < frameList.Count && frameList[frameIndex].TryGetProperty("id", out var idEl))
+                frameId = idEl.GetInt32();
+        }
+    }
+    var body = await client.EvaluateAsync(expression!, frameId).ConfigureAwait(false);
+    if (body == null)
+        return "# No result.";
+    var result = body.Value.TryGetProperty("result", out var r) ? r.GetString() : null;
+    var type = body.Value.TryGetProperty("type", out var t) ? t.GetString() : null;
+    if (body.Value.TryGetProperty("message", out var msg))
+        return "# " + msg.GetString();
+    return (result ?? "") + (type != null ? $" ({type})" : "");
+}
+
+async Task<string> HandleDebugScopes(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
+{
+    var waitSec = GetWaitSeconds(args);
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled."; }
+    catch (TimeoutException) { return $"# Timeout ({waitSec}s) waiting for stop."; }
+    var (client, threadId) = GetSessionAndThreadId();
+    var frameIndex = args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var fi) ? fi : 0;
+    var stackBody = await WithRetryAsync(() => client.StackTraceAsync(threadId)).ConfigureAwait(false);
+    if (stackBody == null || !stackBody.Value.TryGetProperty("stackFrames", out var frames))
+        return "# No stack.";
+    var frameList = frames.EnumerateArray().ToList();
+    if (frameIndex < 0 || frameIndex >= frameList.Count)
+        return "# frame_index out of range.";
+    if (!frameList[frameIndex].TryGetProperty("id", out var idEl))
+        return "# Frame has no id.";
+    var scopesBody = await WithRetryAsync(() => client.ScopesAsync(idEl.GetInt32())).ConfigureAwait(false);
+    if (scopesBody == null || !scopesBody.Value.TryGetProperty("scopes", out var scopes))
+        return "# No scopes.";
+    var sb = new StringBuilder();
+    sb.AppendLine("# Scopes (use variables_reference in debug_set_variable)");
+    foreach (var scope in scopes.EnumerateArray())
+    {
+        var name = scope.TryGetProperty("name", out var n) ? n.GetString() : "?";
+        var vref = scope.TryGetProperty("variablesReference", out var vr) && vr.TryGetInt32(out var v) ? v : 0;
+        sb.AppendLine($"  {name}: variables_reference={vref}");
+    }
+    return sb.ToString();
+}
+
+async Task<string> HandleDebugSetVariable(IReadOnlyDictionary<string, JsonElement> args)
+{
+    if (!args.TryGetValue("variables_reference", out var vrefEl) || !vrefEl.TryGetInt32(out var vref))
+        throw new ArgumentException("variables_reference (integer) is required.");
+    if (!TryGetString(args, "name", out var name) || string.IsNullOrWhiteSpace(name))
+        throw new ArgumentException("name is required.");
+    if (!TryGetString(args, "value", out var value))
+        throw new ArgumentException("value is required.");
+    var (client, _) = GetSessionAndThreadId();
+    var body = await client.SetVariableAsync(vref, name!, value!).ConfigureAwait(false);
+    if (body == null)
+        return "# Set variable sent.";
+    var result = body.Value.TryGetProperty("value", out var v) ? v.GetString() : null;
+    return "# " + (result ?? "OK");
+}
+
+async Task<string> HandleDebugSetExpression(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
+{
+    if (!TryGetString(args, "expression", out var expression) || string.IsNullOrWhiteSpace(expression))
+        throw new ArgumentException("expression is required.");
+    if (!TryGetString(args, "value", out var value))
+        throw new ArgumentException("value is required.");
+    var waitSec = GetWaitSeconds(args);
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled."; }
+    catch (TimeoutException) { return $"# Timeout ({waitSec}s)."; }
+    var (client, threadId) = GetSessionAndThreadId();
+    int? frameId = null;
+    if (args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var frameIndex) && frameIndex != 0)
+    {
+        var stackBody = await WithRetryAsync(() => client.StackTraceAsync(threadId)).ConfigureAwait(false);
+        if (stackBody != null && stackBody.Value.TryGetProperty("stackFrames", out var frames))
+        {
+            var frameList = frames.EnumerateArray().ToList();
+            if (frameIndex >= 0 && frameIndex < frameList.Count && frameList[frameIndex].TryGetProperty("id", out var idEl))
+                frameId = idEl.GetInt32();
+        }
+    }
+    var body = await client.SetExpressionAsync(expression!, value!, frameId).ConfigureAwait(false);
+    if (body == null)
+        return "# OK";
+    if (body.Value.TryGetProperty("message", out var msg))
+        return "# " + msg.GetString();
+    var result = body.Value.TryGetProperty("value", out var v) ? v.GetString() : null;
+    return "# " + (result ?? "OK");
+}
+
+async Task<string> HandleDebugExceptionInfo(IReadOnlyDictionary<string, JsonElement> args, CancellationToken ct)
+{
+    var waitSec = GetWaitSeconds(args);
+    try { await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(waitSec), ct).ConfigureAwait(false); }
+    catch (OperationCanceledException) { return "# Request cancelled."; }
+    catch (TimeoutException) { return $"# Timeout ({waitSec}s)."; }
+    var (client, threadId) = GetSessionAndThreadId();
+    var body = await client.ExceptionInfoAsync(threadId).ConfigureAwait(false);
+    if (body == null || !body.Value.TryGetProperty("description", out var desc))
+        return "# No exception info (or not stopped on exception).";
+    var sb = new StringBuilder();
+    sb.AppendLine("# Exception info");
+    sb.AppendLine("description: " + desc.GetString());
+    if (body.Value.TryGetProperty("exceptionId", out var eid))
+        sb.AppendLine("exceptionId: " + eid.GetString());
+    if (body.Value.TryGetProperty("breakMode", out var bm))
+        sb.AppendLine("breakMode: " + bm.GetString());
+    if (body.Value.TryGetProperty("details", out var details))
+        sb.AppendLine("details: " + details.GetRawText());
+    return sb.ToString();
+}
+
+async Task<string> HandleDebugSetFunctionBreakpoints(IReadOnlyDictionary<string, JsonElement> args)
+{
+    var client = DebugSession.CurrentClient ?? throw new InvalidOperationException("No active debug session. Run debug_launch first.");
+    if (!args.TryGetValue("breakpoints", out var bpEl) || bpEl.ValueKind != JsonValueKind.Array)
+        throw new ArgumentException("breakpoints (array of { name, condition? }) is required.");
+    var list = new List<(string Name, string? Condition)>();
+    foreach (var item in bpEl.EnumerateArray())
+    {
+        if (!TryGetPropString(item, "name", out var name) || string.IsNullOrWhiteSpace(name))
+            continue;
+        TryGetPropString(item, "condition", out var condition);
+        list.Add((name!, string.IsNullOrWhiteSpace(condition) ? null : condition));
+    }
+    await client.SetFunctionBreakpointsAsync(list).ConfigureAwait(false);
+    return $"# Function breakpoints set: {list.Count}.";
+}
+
 static string FormatException(Exception ex)
 {
     var msg = ex.Message;
@@ -720,6 +1066,19 @@ static string ResolveBreakpointFilePath(string workspaceRoot, string filePath)
     if (Path.IsPathRooted(trimmed))
         return Path.GetFullPath(trimmed);
     return Path.GetFullPath(Path.Combine(workspaceRoot, trimmed));
+}
+
+/// <summary>Читает wait_seconds из аргументов (1..120). По умолчанию 5; если последней была step_* (state machine/await) — 15, если явно не передан wait_seconds.</summary>
+static int GetWaitSeconds(IReadOnlyDictionary<string, JsonElement> args)
+{
+    if (args.TryGetValue("wait_seconds", out var el) && el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var sec))
+        return Math.Clamp(sec, 1, 120);
+    if (DebugSession.LastCommandWasStep)
+    {
+        DebugSession.LastCommandWasStep = false;
+        return 15;
+    }
+    return 5;
 }
 
 bool TryGetString(IReadOnlyDictionary<string, JsonElement> args, string key, out string? value)
@@ -774,12 +1133,21 @@ var options = new McpServerOptions
                     "debug_launch" => await HandleDebugLaunch(args),
                     "debug_attach" => await HandleDebugAttach(args),
                     "debug_continue" => await HandleDebugContinue(args),
-                    "debug_step_over" => await HandleDebugStepOver(args),
-                    "debug_step_into" => await HandleDebugStepInto(args),
-                    "debug_step_out" => await HandleDebugStepOut(args),
+                    "debug_step_over" => await HandleDebugStepOver(args, cancellationToken),
+                    "debug_step_into" => await HandleDebugStepInto(args, cancellationToken),
+                    "debug_step_out" => await HandleDebugStepOut(args, cancellationToken),
                     "debug_stop" => await HandleDebugStop(args),
-                    "debug_stack_trace" => await HandleDebugStackTrace(args),
-                    "debug_variables" => await HandleDebugVariables(args),
+                    "debug_stack_trace" => await HandleDebugStackTrace(args, cancellationToken),
+                    "debug_variables" => await HandleDebugVariables(args, cancellationToken),
+                    "debug_pause" => await HandleDebugPause(args),
+                    "debug_terminate" => await HandleDebugTerminate(args),
+                    "debug_evaluate" => await HandleDebugEvaluate(args, cancellationToken),
+                    "debug_scopes" => await HandleDebugScopes(args, cancellationToken),
+                    "debug_set_variable" => await HandleDebugSetVariable(args),
+                    "debug_set_expression" => await HandleDebugSetExpression(args, cancellationToken),
+                    "debug_exception_info" => await HandleDebugExceptionInfo(args, cancellationToken),
+                    "debug_set_function_breakpoints" => await HandleDebugSetFunctionBreakpoints(args),
+                    "debug_cancel" => await HandleDebugCancel(args),
                     _ => throw new ArgumentException($"Unknown tool: {name}.")
                 };
                 return new CallToolResult { Content = [new TextContentBlock { Text = text }] };
@@ -808,6 +1176,8 @@ static class DebugSession
     public static int LastStoppedThreadId { get; set; }
     /// <summary>Текст последнего исключения при остановке по reason=exception (для вывода агенту).</summary>
     public static string? LastExceptionText { get; set; }
+    /// <summary>True после step_over/step_into/step_out — следующий stack_trace/variables без явного wait_seconds использует увеличенный таймаут (state machine/await).</summary>
+    public static bool LastCommandWasStep { get; set; }
 
     private static TaskCompletionSource? _currentStoppedTcs;
     private static readonly object StoppedLock = new();
@@ -839,10 +1209,11 @@ static class DebugSession
     {
         LastStoppedThreadId = 0;
         LastExceptionText = null;
+        LastCommandWasStep = false;
     }
 
-    /// <summary>Ждать следующего события stopped (или вернуться сразу, если уже paused). Таймаут — исключение TimeoutException.</summary>
-    public static async Task WaitForStoppedAsync(TimeSpan timeout)
+    /// <summary>Ждать следующего события stopped (или вернуться сразу, если уже paused). Таймаут — TimeoutException, отмена клиента — OperationCanceledException.</summary>
+    public static async Task WaitForStoppedAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         if (CurrentClient == null)
             throw new InvalidOperationException("No active debug session. Run debug_launch first.");
@@ -853,7 +1224,7 @@ static class DebugSession
                 return;
             waitTask = _currentStoppedTcs?.Task ?? Task.CompletedTask;
         }
-        await waitTask.WaitAsync(timeout).ConfigureAwait(false);
+        await waitTask.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
     }
 }
 

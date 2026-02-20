@@ -17,6 +17,7 @@ public sealed class DapClient : IAsyncDisposable
     private readonly Stream _reader;
     private readonly Process _process;
     private int _requestId;
+    private volatile int _lastSentRequestId;
     private readonly byte[] _buffer = new byte[1024 * 64];
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private readonly ConcurrentDictionary<int, TaskCompletionSource<DapResponseResult>> _pendingResponses = new();
@@ -30,6 +31,9 @@ public sealed class DapClient : IAsyncDisposable
 
     /// <summary>Вызывается при обрыве связи (netcoredbg завершён снаружи, stream closed). Позволяет сбросить сессию и не ронять MCP.</summary>
     public Action? OnConnectionLost { get; set; }
+
+    /// <summary>Seq последнего отправленного запроса (для DAP cancel).</summary>
+    public int LastSentRequestId => _lastSentRequestId;
 
     private DapClient(Process process, Stream reader, Stream writer)
     {
@@ -119,6 +123,7 @@ public sealed class DapClient : IAsyncDisposable
     public async Task SendRequestAsync(string method, object? args, CancellationToken cancellationToken = default)
     {
         var id = Interlocked.Increment(ref _requestId);
+        _lastSentRequestId = id;
         var tcs = new TaskCompletionSource<DapResponseResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingResponses[id] = tcs;
         try
@@ -149,6 +154,7 @@ public sealed class DapClient : IAsyncDisposable
     public async Task<JsonElement?> SendRequestWithBodyAsync(string method, object? args, CancellationToken cancellationToken = default)
     {
         var id = Interlocked.Increment(ref _requestId);
+        _lastSentRequestId = id;
         var tcs = new TaskCompletionSource<DapResponseResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingResponses[id] = tcs;
         try
@@ -176,6 +182,38 @@ public sealed class DapClient : IAsyncDisposable
         }
     }
 
+    /// <summary>Отправить DAP cancel для указанного request_seq. Возвращает true, если адаптер принял отмену (очередь netcoredbg отменила запрос).</summary>
+    public async Task<(bool Success, string? Message)> CancelRequestAsync(int requestId, CancellationToken cancellationToken = default)
+    {
+        if (requestId <= 0)
+            return (false, "requestId must be positive.");
+        var id = Interlocked.Increment(ref _requestId);
+        _lastSentRequestId = id;
+        var tcs = new TaskCompletionSource<DapResponseResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingResponses[id] = tcs;
+        try
+        {
+            var request = new Dictionary<string, object?>
+            {
+                ["seq"] = id,
+                ["type"] = "request",
+                ["command"] = "cancel",
+                ["arguments"] = new Dictionary<string, object?> { ["requestId"] = requestId }
+            };
+            var bodyBytes = JsonSerializer.SerializeToUtf8Bytes(request, JsonOptions);
+            var header = Encoding.UTF8.GetBytes($"Content-Length: {bodyBytes.Length}\r\n\r\n");
+            await _writer.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+            await _writer.WriteAsync(bodyBytes, cancellationToken).ConfigureAwait(false);
+            await _writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+            var result = await tcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return (result.Success, result.ErrorMessage);
+        }
+        finally
+        {
+            _pendingResponses.TryRemove(id, out _);
+        }
+    }
+
     public async Task ContinueAsync(int threadId, CancellationToken cancellationToken = default)
     {
         await SendRequestAsync("continue", new Dictionary<string, object?> { ["threadId"] = threadId }, cancellationToken).ConfigureAwait(false);
@@ -194,6 +232,70 @@ public sealed class DapClient : IAsyncDisposable
     public async Task StepOutAsync(int threadId, CancellationToken cancellationToken = default)
     {
         await SendRequestAsync("stepOut", new Dictionary<string, object?> { ["threadId"] = threadId }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP pause: приостановить выполнение потока (остановка без брейкпоинта).</summary>
+    public async Task PauseAsync(int threadId, CancellationToken cancellationToken = default)
+    {
+        await SendRequestAsync("pause", new Dictionary<string, object?> { ["threadId"] = threadId }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP terminate: завершить отлаживаемый процесс (DisconnectTerminate).</summary>
+    public async Task TerminateAsync(CancellationToken cancellationToken = default)
+    {
+        await SendRequestAsync("terminate", null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP evaluate: вычислить выражение в контексте кадра. frameId опционален — при отсутствии используется верхний кадр последнего остановленного потока. Возвращает body (result, type, variablesReference и т.д.) или null.</summary>
+    public async Task<JsonElement?> EvaluateAsync(string expression, int? frameId = null, CancellationToken cancellationToken = default)
+    {
+        var args = new Dictionary<string, object?> { ["expression"] = expression };
+        if (frameId.HasValue)
+            args["frameId"] = frameId.Value;
+        return await SendRequestWithBodyAsync("evaluate", args, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP setVariable: изменить значение переменной по variablesReference и имени.</summary>
+    public async Task<JsonElement?> SetVariableAsync(int variablesReference, string name, string value, CancellationToken cancellationToken = default)
+    {
+        return await SendRequestWithBodyAsync("setVariable", new Dictionary<string, object?>
+        {
+            ["variablesReference"] = variablesReference,
+            ["name"] = name,
+            ["value"] = value
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP setExpression: установить значение выражения в контексте кадра (например "x" = "42"). frameId опционален.</summary>
+    public async Task<JsonElement?> SetExpressionAsync(string expression, string value, int? frameId = null, CancellationToken cancellationToken = default)
+    {
+        var args = new Dictionary<string, object?>
+        {
+            ["expression"] = expression,
+            ["value"] = value
+        };
+        if (frameId.HasValue)
+            args["frameId"] = frameId.Value;
+        return await SendRequestWithBodyAsync("setExpression", args, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP exceptionInfo: детали исключения для потока (при остановке по exception). Возвращает body (exceptionId, description, breakMode, details).</summary>
+    public async Task<JsonElement?> ExceptionInfoAsync(int threadId, CancellationToken cancellationToken = default)
+    {
+        return await SendRequestWithBodyAsync("exceptionInfo", new Dictionary<string, object?> { ["threadId"] = threadId }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DAP setFunctionBreakpoints: брейкпоинты по имени метода. name — например "MyClass.MyMethod" или "Module!Method".</summary>
+    public async Task SetFunctionBreakpointsAsync(IReadOnlyList<(string Name, string? Condition)> breakpoints, CancellationToken cancellationToken = default)
+    {
+        var bps = breakpoints.Select(b =>
+        {
+            var d = new Dictionary<string, object?> { ["name"] = b.Name };
+            if (!string.IsNullOrEmpty(b.Condition))
+                d["condition"] = b.Condition;
+            return d;
+        }).ToList();
+        await SendRequestAsync("setFunctionBreakpoints", new Dictionary<string, object?> { ["breakpoints"] = bps }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>DAP stackTrace: стек вызовов по threadId. Возвращает body ответа (stackFrames) или null.</summary>
