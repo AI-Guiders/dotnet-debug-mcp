@@ -448,7 +448,14 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
-        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        try
+        {
+            await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        }
+        catch
+        {
+            // netcoredbg может вернуть ошибку на setExceptionBreakpoints (0x80070057); не ломаем сессию.
+        }
         await client.ConfigurationDoneAsync().ConfigureAwait(false);
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
@@ -558,8 +565,22 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
-        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
-        await client.ConfigurationDoneAsync().ConfigureAwait(false);
+        try
+        {
+            await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        }
+        catch
+        {
+            // При attach netcoredbg может вернуть ошибку на setExceptionBreakpoints (0x80070057); не ломаем сессию.
+        }
+        try
+        {
+            await client.ConfigurationDoneAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // При attach netcoredbg иногда падает и на configurationDone (0x80070057); продолжаем.
+        }
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
     catch (TimeoutException)
