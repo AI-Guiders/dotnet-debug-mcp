@@ -27,6 +27,14 @@ dotnet publish DotnetDebugMcp.csproj -c Release -o publish
 
 В конфиге MCP укажи **command** — путь к `DotnetDebugMcp.exe` в папке `publish`, **args** — `[]`.
 
+## Каталог тулов (автогенерация)
+
+Полный список имён и текстов `description` — в [`docs/MCP-TOOLS.md`](docs/MCP-TOOLS.md); машиночитаемый манифест — [`mcp-tools.manifest.json`](mcp-tools.manifest.json). Обновление из корня репозитория `dotnet-debug-mcp`:
+
+```bash
+dotnet run --project tools/ExportMcpManifest -- --write
+```
+
 ## Инструменты
 
 | Инструмент | Описание |

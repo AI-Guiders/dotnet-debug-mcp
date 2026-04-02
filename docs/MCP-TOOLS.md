@@ -1,0 +1,64 @@
+# Dotnet Debug MCP — каталог тулов
+
+<!-- GENERATED:ToolCatalog START -->
+
+> Автогенерация из `ToolCatalog.Build()`. Не править этот блок вручную.
+>
+> Обновление: из каталога `dotnet-debug-mcp` выполнить `dotnet run --project tools/ExportMcpManifest -- --write`.
+>
+> Тексты совпадают с полем `description` у инструментов MCP; полная схема — в `inputSchema`.
+
+### `debug_ping`
+
+Проверка доступности сервера отладки. Возвращает текущее время и статус.
+
+### `debug_set_breakpoints`
+
+Записать брейкпоинты для целевого проекта/exe. Файл .dotnet-debug-mcp-breakpoints.json в каталоге workspace_path. Дальше: передача в DAP при debug_launch.
+
+### `debug_list_breakpoints`
+
+Показать сохранённые брейкпоинты. По умолчанию — все цели в workspace; можно указать target_path.
+
+### `debug_clear_breakpoints`
+
+Удалить сохранённые брейкпоинты: для одной цели (target_path) или для всего workspace.
+
+### `debug_launch`
+
+Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или переменная NETCOREDBG_PATH).
+
+### `debug_attach`
+
+Подключиться к уже запущенному .NET-процессу по PID (DAP attach). Опционально target_path — загрузить сохранённые брейкпоинты для этого target.
+
+### `debug_continue`
+
+Продолжить выполнение после остановки на брейкпоинте (DAP continue). Требуется активная сессия после debug_launch.
+
+### `debug_step_over`
+
+Шаг через текущую строку (DAP next). Вызывать только когда выполнение уже остановлено на брейкпоинте (после события stopped). Требуется активная сессия после debug_launch.
+
+### `debug_step_into`
+
+Шаг в (DAP stepIn): зайти в вызов. Только при остановке на брейкпоинте. Требуется активная сессия.
+
+### `debug_step_out`
+
+Шаг из (DAP stepOut): выйти из текущего кадра. Только при остановке на брейкпоинте. Требуется активная сессия.
+
+### `debug_stop`
+
+Завершить текущую отладочную сессию (dispose DAP-клиент, освободить ресурсы). После вызова нужен новый debug_launch для отладки.
+
+### `debug_stack_trace`
+
+Стек вызовов текущего потока (DAP stackTrace). Вызывать когда выполнение остановлено на брейкпоинте. Возвращает кадры: имя, файл, строка. Опционально frame_index для debug_variables.
+
+### `debug_variables`
+
+Переменные кадра (DAP variables). Вызывать когда остановлены. Без аргументов — переменные верхнего кадра (frame_index=0). Или передать frame_index (0-based) по стеку из debug_stack_trace.
+
+<!-- GENERATED:ToolCatalog END -->
+
