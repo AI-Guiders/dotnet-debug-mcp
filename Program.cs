@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
+using DotnetDebug.Core;
 using DotnetDebugMcp;
 using DotnetDebugMcp.Services;
 using ModelContextProtocol.Protocol;

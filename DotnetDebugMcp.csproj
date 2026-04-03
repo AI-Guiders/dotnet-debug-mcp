@@ -31,4 +31,8 @@
     <PackageReference Include="ModelContextProtocol" Version="0.8.0-preview.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\dotnet-debug-core\DotnetDebug.Core.csproj" />
+  </ItemGroup>
+
 </Project>
