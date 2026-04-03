@@ -145,6 +145,7 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
         else if (eventName == "continued")
             DebugSession.OnContinued();
     };
+    var exceptionBpsOk = false;
     try
     {
         await client.LaunchAsync(programPath, Path.GetDirectoryName(programPath), programArgs).ConfigureAwait(false);
@@ -153,7 +154,7 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
-        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        exceptionBpsOk = await TrySetUnhandledExceptionBreakpointsAsync(client).ConfigureAwait(false);
         await client.ConfigurationDoneAsync().ConfigureAwait(false);
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
@@ -195,7 +196,9 @@ async Task<string> HandleDebugLaunch(IReadOnlyDictionary<string, JsonElement> ar
     sb.AppendLine("# Debug session started");
     sb.AppendLine($"# Program: {programPath}");
     sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
-    sb.AppendLine("# Exception breakpoints: unhandled (stop on throw)");
+    sb.AppendLine(exceptionBpsOk
+        ? "# Exception breakpoints: unhandled (stop on throw)"
+        : "# Exception breakpoints: skipped (adapter rejected setExceptionBreakpoints; some netcoredbg builds return 0x80070057)");
     if (!stopped)
         sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops, or check that the target hits a breakpoint. First thread id used as fallback if available.)");
     else if (DebugSession.LastExceptionText is { } exMsg)
@@ -255,6 +258,7 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
         else if (eventName == "continued")
             DebugSession.OnContinued();
     };
+    var attachExceptionBpsOk = false;
     try
     {
         await client.AttachAsync(processId).ConfigureAwait(false);
@@ -263,7 +267,7 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
             if (list.Count > 0)
                 await client.SetBreakpointsAsync(file, list).ConfigureAwait(false);
         }
-        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        attachExceptionBpsOk = await TrySetUnhandledExceptionBreakpointsAsync(client).ConfigureAwait(false);
         await client.ConfigurationDoneAsync().ConfigureAwait(false);
         await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
     }
@@ -305,13 +309,29 @@ async Task<string> HandleDebugAttach(IReadOnlyDictionary<string, JsonElement> ar
     sb.AppendLine("# Debug session started (attach)");
     sb.AppendLine($"# Process ID: {processId}");
     sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
-    sb.AppendLine("# Exception breakpoints: unhandled (stop on throw)");
+    sb.AppendLine(attachExceptionBpsOk
+        ? "# Exception breakpoints: unhandled (stop on throw)"
+        : "# Exception breakpoints: skipped (adapter rejected setExceptionBreakpoints; some netcoredbg builds return 0x80070057)");
     if (!stopped)
         sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops.)");
     else if (DebugSession.LastExceptionText is { } exMsg)
         sb.AppendLine($"# Stopped on exception: {exMsg}");
     sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
     return sb.ToString();
+}
+
+/// <summary>Некоторые сборки netcoredbg отклоняют setExceptionBreakpoints (HRESULT 0x80070057) — тогда продолжаем без остановок по исключениям.</summary>
+static async Task<bool> TrySetUnhandledExceptionBreakpointsAsync(DapClient client)
+{
+    try
+    {
+        await client.SetExceptionBreakpointsAsync(["unhandled"]).ConfigureAwait(false);
+        return true;
+    }
+    catch (InvalidOperationException)
+    {
+        return false;
+    }
 }
 
 static (DapClient client, int threadId) GetSessionAndThreadId()
