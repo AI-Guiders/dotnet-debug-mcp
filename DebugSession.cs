@@ -1,4 +1,4 @@
-using DotnetDebugMcp.Services;
+using DotnetDebug.Core;
 
 namespace DotnetDebugMcp;
 

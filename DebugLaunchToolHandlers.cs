@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using DotnetDebug.Core;
-using DotnetDebugMcp.Services;
 
 namespace DotnetDebugMcp;
 
@@ -45,7 +44,7 @@ internal static class DebugLaunchToolHandlers
                 programArgs = list;
         }
 
-        var client = await DapClient.StartAsync(netcoredbgPath).ConfigureAwait(false);
+        var client = await DapClient.StartAsync(netcoredbgPath, cancellationToken: default, clientId: "dotnet-debug-mcp", clientName: "DotnetDebugMcp").ConfigureAwait(false);
         client.OnConnectionLost = () =>
         {
             if (DebugSession.CurrentClient == client)
@@ -158,7 +157,7 @@ internal static class DebugLaunchToolHandlers
                 .ToDictionary(g => g.Key, g => g.Select(b => (b.Line, b.Condition)).ToList());
         }
 
-        var client = await DapClient.StartAsync(netcoredbgPath).ConfigureAwait(false);
+        var client = await DapClient.StartAsync(netcoredbgPath, cancellationToken: default, clientId: "dotnet-debug-mcp", clientName: "DotnetDebugMcp").ConfigureAwait(false);
         client.OnConnectionLost = () =>
         {
             if (DebugSession.CurrentClient == client)
