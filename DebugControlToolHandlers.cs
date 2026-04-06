@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using DotnetDebug.Core;
 
 namespace DotnetDebugMcp;
 
@@ -147,13 +148,15 @@ internal static class DebugControlToolHandlers
                         continue;
                     usedScopes = true;
                     sb.AppendLine($"## {scopeName}");
-                    foreach (var v in vars.EnumerateArray())
-                    {
-                        var name = v.TryGetProperty("name", out var n) ? n.GetString() : "?";
-                        var value = v.TryGetProperty("value", out var val) ? val.GetString() : "?";
-                        var type = v.TryGetProperty("type", out var t) ? t.GetString() : null;
-                        sb.AppendLine($"  {name} = {value}" + (type != null ? $" ({type})" : ""));
-                    }
+                    await DapVariableExpansion.AppendExpandedVariablesAsync(
+                        client,
+                        sb,
+                        vars,
+                        indent: "  ",
+                        depth: 0,
+                        maxDepth: DapVariableExpansion.DefaultMaxDepth,
+                        maxChildrenPerNode: DapVariableExpansion.DefaultMaxChildrenPerNode,
+                        CancellationToken.None).ConfigureAwait(false);
                 }
             }
         }
@@ -175,13 +178,15 @@ internal static class DebugControlToolHandlers
             }
             if (varsBody == null || !varsBody.Value.TryGetProperty("variables", out var vars))
                 return "# No variables for this frame (tried scopes and direct variables).";
-            foreach (var v in vars.EnumerateArray())
-            {
-                var name = v.TryGetProperty("name", out var n) ? n.GetString() : "?";
-                var value = v.TryGetProperty("value", out var val) ? val.GetString() : "?";
-                var type = v.TryGetProperty("type", out var t) ? t.GetString() : null;
-                sb.AppendLine($"  {name} = {value}" + (type != null ? $" ({type})" : ""));
-            }
+            await DapVariableExpansion.AppendExpandedVariablesAsync(
+                client,
+                sb,
+                vars,
+                indent: "  ",
+                depth: 0,
+                maxDepth: DapVariableExpansion.DefaultMaxDepth,
+                maxChildrenPerNode: DapVariableExpansion.DefaultMaxChildrenPerNode,
+                CancellationToken.None).ConfigureAwait(false);
         }
 
         return sb.ToString();
