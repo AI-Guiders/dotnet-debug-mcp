@@ -58,7 +58,11 @@
 
 ### `debug_variables`
 
-Переменные кадра (DAP variables). Вызывать когда остановлены. Без аргументов — переменные верхнего кадра (frame_index=0). Или передать frame_index (0-based) по стеку из debug_stack_trace.
+Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Тяжёлый кадр: format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 8), max_children_per_node (1..256, по умол. 64). format: text (по умол.) или json — структура с scopes; json_indented по умол. true.
+
+### `debug_variable_children`
+
+Один уровень вложенных переменных по variablesReference (из JSON debug_variables: не рекурсия). Снижает объём ответа. Подсказки indexed_variables / named_variables с родителя; max_children; json_indented.
 
 <!-- GENERATED:ToolCatalog END -->
 

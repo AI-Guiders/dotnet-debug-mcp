@@ -29,4 +29,21 @@ internal static class McpArgumentHelpers
             return false;
         return prop.TryGetInt32(out value);
     }
+
+    /// <summary>Опциональное целое из аргументов MCP; вне [min, max] — зажать.</summary>
+    internal static int GetOptionalClampedInt32(
+        IReadOnlyDictionary<string, JsonElement> args,
+        string key,
+        int defaultValue,
+        int min,
+        int max)
+    {
+        if (!args.TryGetValue(key, out var el) || el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out var v))
+            return defaultValue;
+        if (v < min)
+            return min;
+        if (v > max)
+            return max;
+        return v;
+    }
 }

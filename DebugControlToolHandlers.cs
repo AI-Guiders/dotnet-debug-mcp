@@ -110,6 +110,23 @@ internal static class DebugControlToolHandlers
         var frameIndex = 0;
         if (args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var fi))
             frameIndex = fi;
+        var maxDepth = McpArgumentHelpers.GetOptionalClampedInt32(
+            args,
+            "max_depth",
+            DapVariableExpansion.DefaultMaxDepth,
+            min: 0,
+            max: 32);
+        var maxChildren = McpArgumentHelpers.GetOptionalClampedInt32(
+            args,
+            "max_children_per_node",
+            DapVariableExpansion.DefaultMaxChildrenPerNode,
+            min: 1,
+            max: 256);
+        var formatJson = args.TryGetValue("format", out var fmtEl) &&
+            fmtEl.ValueKind == JsonValueKind.String &&
+            string.Equals(fmtEl.GetString(), "json", StringComparison.OrdinalIgnoreCase);
+        var jsonIndented = !args.TryGetValue("json_indented", out var jindEl) || jindEl.ValueKind != JsonValueKind.False;
+
         JsonElement? stackBody;
         try
         {
@@ -128,10 +145,7 @@ internal static class DebugControlToolHandlers
         if (!frame.TryGetProperty("id", out var idEl))
             return "# Frame has no id.";
         var frameId = idEl.GetInt32();
-        var sb = new StringBuilder();
-        sb.AppendLine($"# Variables (frame {frameIndex})");
-
-        // Сначала пробуем scopes: netcoredbg и др. отдают переменные только через scope.variablesReference.
+        var scopeBlocks = new List<(string Name, JsonElement Variables)>();
         var usedScopes = false;
         try
         {
@@ -147,22 +161,13 @@ internal static class DebugControlToolHandlers
                     if (varsBody == null || !varsBody.Value.TryGetProperty("variables", out var vars))
                         continue;
                     usedScopes = true;
-                    sb.AppendLine($"## {scopeName}");
-                    await DapVariableExpansion.AppendExpandedVariablesAsync(
-                        client,
-                        sb,
-                        vars,
-                        indent: "  ",
-                        depth: 0,
-                        maxDepth: DapVariableExpansion.DefaultMaxDepth,
-                        maxChildrenPerNode: DapVariableExpansion.DefaultMaxChildrenPerNode,
-                        CancellationToken.None).ConfigureAwait(false);
+                    scopeBlocks.Add((scopeName ?? "?", vars));
                 }
             }
         }
         catch (InvalidOperationException)
         {
-            // scopes не поддерживается или ошибка — пробуем variables(frameId) напрямую
+            // scopes не поддерживается — ниже direct variables
         }
 
         if (!usedScopes)
@@ -178,17 +183,100 @@ internal static class DebugControlToolHandlers
             }
             if (varsBody == null || !varsBody.Value.TryGetProperty("variables", out var vars))
                 return "# No variables for this frame (tried scopes and direct variables).";
-            await DapVariableExpansion.AppendExpandedVariablesAsync(
-                client,
-                sb,
-                vars,
-                indent: "  ",
-                depth: 0,
-                maxDepth: DapVariableExpansion.DefaultMaxDepth,
-                maxChildrenPerNode: DapVariableExpansion.DefaultMaxChildrenPerNode,
-                CancellationToken.None).ConfigureAwait(false);
+            scopeBlocks.Add(("variables", vars));
+        }
+
+        if (scopeBlocks.Count == 0)
+            return "# No variable scopes for this frame.";
+
+        if (formatJson)
+        {
+            var built = new List<(string ScopeName, IReadOnlyList<DapVariableTreeNode> Roots)>(scopeBlocks.Count);
+            foreach (var (name, varEl) in scopeBlocks)
+            {
+                var tree = await DapVariableExpansion
+                    .BuildExpandedTreeAsync(client, varEl, maxDepth, maxChildren, CancellationToken.None)
+                    .ConfigureAwait(false);
+                built.Add((name, tree));
+            }
+
+            return DapVariableExpansion.SerializeFrameVariablesDocumentToJson(
+                frameIndex,
+                maxDepth,
+                maxChildren,
+                built,
+                jsonIndented);
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"# Variables (frame {frameIndex})");
+        if (maxDepth != DapVariableExpansion.DefaultMaxDepth || maxChildren != DapVariableExpansion.DefaultMaxChildrenPerNode)
+            sb.AppendLine($"# (max_depth={maxDepth}, max_children_per_node={maxChildren})");
+        foreach (var (name, varEl) in scopeBlocks)
+        {
+            sb.AppendLine($"## {name}");
+            await DapVariableExpansion
+                .AppendExpandedVariablesAsync(
+                    client,
+                    sb,
+                    varEl,
+                    indent: "  ",
+                    depth: 0,
+                    maxDepth,
+                    maxChildren,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>Один уровень детей по <c>variablesReference</c> (без рекурсии); тяжёлый кадр — сначала <c>debug_variables</c> с format=json и малым max_depth, потом сюда.</summary>
+    internal static async Task<string> HandleDebugVariableChildren(IReadOnlyDictionary<string, JsonElement> args)
+    {
+        try
+        {
+            await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
+        }
+        if (!args.TryGetValue("variables_reference", out var vrefTop) || vrefTop.ValueKind != JsonValueKind.Number || !vrefTop.TryGetInt32(out var vref) || vref == 0)
+            return "# variables_reference is required and must be a non-zero integer (from debug_variables JSON or DAP).";
+
+        int? parentIndexed = null;
+        if (args.TryGetValue("indexed_variables", out var ivEl) && ivEl.ValueKind == JsonValueKind.Number && ivEl.TryGetInt32(out var iv) && iv >= 0)
+            parentIndexed = iv;
+        int? parentNamed = null;
+        if (args.TryGetValue("named_variables", out var nvEl) && nvEl.ValueKind == JsonValueKind.Number && nvEl.TryGetInt32(out var nv) && nv >= 0)
+            parentNamed = nv;
+        var maxChildren = McpArgumentHelpers.GetOptionalClampedInt32(
+            args,
+            "max_children",
+            DapVariableExpansion.DefaultMaxChildrenPerNode,
+            min: 1,
+            max: 256);
+        var jsonIndented = !args.TryGetValue("json_indented", out var jindEl) || jindEl.ValueKind != JsonValueKind.False;
+
+        var (client, _) = DapHelpers.GetSessionAndThreadId();
+        var body = await DapVariableExpansion
+            .FetchChildVariablesBodyAsync(
+                client,
+                vref,
+                parentNamed,
+                parentIndexed,
+                maxChildren,
+                CancellationToken.None)
+            .ConfigureAwait(false);
+        if (body == null || !body.Value.TryGetProperty("variables", out var vars))
+            return "# No children for this variables_reference (or DAP error).";
+        if (vars.GetArrayLength() == 0)
+            return DapVariableExpansion.SerializeVariableListToJson(Array.Empty<DapVariableTreeNode>(), jsonIndented);
+
+        var oneLevel = await DapVariableExpansion
+            .BuildExpandedTreeAsync(client, vars, maxDepth: 0, maxChildren, CancellationToken.None)
+            .ConfigureAwait(false);
+        return DapVariableExpansion.SerializeVariableListToJson(oneLevel, jsonIndented);
     }
 }

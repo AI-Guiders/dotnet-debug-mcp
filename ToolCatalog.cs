@@ -171,15 +171,38 @@ internal static class ToolCatalog
             {
                 Name = "debug_variables",
                 Description =
-                    "Переменные кадра (DAP variables). Вызывать когда остановлены. Без аргументов — переменные верхнего кадра (frame_index=0). Или передать frame_index (0-based) по стеку из debug_stack_trace.",
+                    "Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Тяжёлый кадр: format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 8), max_children_per_node (1..256, по умол. 64). format: text (по умол.) или json — структура с scopes; json_indented по умол. true.",
                 InputSchema = Schema(new
                 {
                     type = "object",
                     properties = new
                     {
-                        frame_index = new { type = "integer", description = "Индекс кадра в стеке (0 = верхний). По умолчанию 0." }
+                        frame_index = new { type = "integer", description = "Индекс кадра (0 = верхний). По умолчанию 0." },
+                        max_depth = new { type = "integer", description = "Глубина раскрытия по variablesReference, 0..32, по умол. 8." },
+                        max_children_per_node = new { type = "integer", description = "Макс. детей на узел, 1..256, по умол. 64." },
+                        format = new { type = "string", description = "text (по умол.) или json — дерево с полями name, value, type, variablesReference, children." },
+                        json_indented = new { type = "boolean", description = "Для format=json: многострочный JSON, по умол. true." }
                     },
                     required = Array.Empty<string>()
+                })
+            },
+            new()
+            {
+                Name = "debug_variable_children",
+                Description =
+                    "Один уровень вложенных переменных по variablesReference (из JSON debug_variables: не рекурсия). Снижает объём ответа. Подсказки indexed_variables / named_variables с родителя; max_children; json_indented.",
+                InputSchema = Schema(new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        variables_reference = new { type = "integer", description = "Ненулевой ref из DAP (поле variablesReference у родителя)." },
+                        named_variables = new { type = "integer", description = "Опционально. Подсказка namedVariables родителя для fallback DAP." },
+                        indexed_variables = new { type = "integer", description = "Опционально. Подсказка indexedVariables родителя (массивы)." },
+                        max_children = new { type = "integer", description = "Макс. число детей, 1..256, по умол. 64." },
+                        json_indented = new { type = "boolean", description = "По умол. true." }
+                    },
+                    required = new[] { "variables_reference" }
                 })
             }
         ];

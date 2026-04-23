@@ -12,7 +12,7 @@ var toolsList = ToolCatalog.Build();
 
 var options = new McpServerOptions
 {
-    ServerInfo = new Implementation { Name = "DotnetDebugMcp", Version = "0.2.0" },
+    ServerInfo = new Implementation { Name = "DotnetDebugMcp", Version = "0.3.0" },
     ProtocolVersion = "2024-11-05",
     Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = false } },
     Handlers = new McpServerHandlers
@@ -42,6 +42,7 @@ var options = new McpServerOptions
                     "debug_stop" => await DebugControlToolHandlers.HandleDebugStop(args),
                     "debug_stack_trace" => await DebugControlToolHandlers.HandleDebugStackTrace(args),
                     "debug_variables" => await DebugControlToolHandlers.HandleDebugVariables(args),
+                    "debug_variable_children" => await DebugControlToolHandlers.HandleDebugVariableChildren(args),
                     _ => throw new ArgumentException($"Unknown tool: {name}.")
                 };
                 return new CallToolResult { Content = [new TextContentBlock { Text = text }] };
