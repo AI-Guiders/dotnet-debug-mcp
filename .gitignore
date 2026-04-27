@@ -6,3 +6,4 @@ publish/
 *.suo
 *.nupkg
 .dotnet-debug-mcp-breakpoints.json
+.cascade-ide/
