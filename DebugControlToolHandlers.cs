@@ -110,22 +110,33 @@ internal static class DebugControlToolHandlers
         var frameIndex = 0;
         if (args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var fi))
             frameIndex = fi;
+        var fast = args.TryGetValue("fast", out var fastEl) && fastEl.ValueKind == JsonValueKind.True;
+        var maxDepthDefault = fast ? 0 : DapVariableExpansion.DefaultMaxDepth;
+        var maxChildrenDefault = fast ? 24 : DapVariableExpansion.DefaultMaxChildrenPerNode;
         var maxDepth = McpArgumentHelpers.GetOptionalClampedInt32(
             args,
             "max_depth",
-            DapVariableExpansion.DefaultMaxDepth,
+            maxDepthDefault,
             min: 0,
             max: 32);
         var maxChildren = McpArgumentHelpers.GetOptionalClampedInt32(
             args,
             "max_children_per_node",
-            DapVariableExpansion.DefaultMaxChildrenPerNode,
+            maxChildrenDefault,
             min: 1,
             max: 256);
+        var timeBudgetMs = McpArgumentHelpers.GetOptionalClampedInt32(
+            args,
+            "time_budget_ms",
+            fast ? 700 : 1800,
+            min: 100,
+            max: 10000);
         var formatJson = args.TryGetValue("format", out var fmtEl) &&
             fmtEl.ValueKind == JsonValueKind.String &&
             string.Equals(fmtEl.GetString(), "json", StringComparison.OrdinalIgnoreCase);
         var jsonIndented = !args.TryGetValue("json_indented", out var jindEl) || jindEl.ValueKind != JsonValueKind.False;
+        using var budgetCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeBudgetMs));
+        var ct = budgetCts.Token;
 
         JsonElement? stackBody;
         try
@@ -189,15 +200,27 @@ internal static class DebugControlToolHandlers
         if (scopeBlocks.Count == 0)
             return "# No variable scopes for this frame.";
 
+        var partial = false;
+        string? partialNote = null;
+
         if (formatJson)
         {
             var built = new List<(string ScopeName, IReadOnlyList<DapVariableTreeNode> Roots)>(scopeBlocks.Count);
             foreach (var (name, varEl) in scopeBlocks)
             {
-                var tree = await DapVariableExpansion
-                    .BuildExpandedTreeAsync(client, varEl, maxDepth, maxChildren, CancellationToken.None)
-                    .ConfigureAwait(false);
-                built.Add((name, tree));
+                try
+                {
+                    var tree = await DapVariableExpansion
+                        .BuildExpandedTreeAsync(client, varEl, maxDepth, maxChildren, ct)
+                        .ConfigureAwait(false);
+                    built.Add((name, tree));
+                }
+                catch (OperationCanceledException)
+                {
+                    partial = true;
+                    partialNote = $"Stopped by time budget ({timeBudgetMs} ms). Use fast=true, lower max_depth/max_children_per_node, or inspect via debug_variable_children.";
+                    break;
+                }
             }
 
             return DapVariableExpansion.SerializeFrameVariablesDocumentToJson(
@@ -205,27 +228,37 @@ internal static class DebugControlToolHandlers
                 maxDepth,
                 maxChildren,
                 built,
+                partial,
+                partialNote,
                 jsonIndented);
         }
 
         var sb = new StringBuilder();
         sb.AppendLine($"# Variables (frame {frameIndex})");
-        if (maxDepth != DapVariableExpansion.DefaultMaxDepth || maxChildren != DapVariableExpansion.DefaultMaxChildrenPerNode)
-            sb.AppendLine($"# (max_depth={maxDepth}, max_children_per_node={maxChildren})");
+        sb.AppendLine($"# (max_depth={maxDepth}, max_children_per_node={maxChildren}, time_budget_ms={timeBudgetMs}, fast={fast.ToString().ToLowerInvariant()})");
         foreach (var (name, varEl) in scopeBlocks)
         {
             sb.AppendLine($"## {name}");
-            await DapVariableExpansion
-                .AppendExpandedVariablesAsync(
-                    client,
-                    sb,
-                    varEl,
-                    indent: "  ",
-                    depth: 0,
-                    maxDepth,
-                    maxChildren,
-                    CancellationToken.None)
-                .ConfigureAwait(false);
+            try
+            {
+                await DapVariableExpansion
+                    .AppendExpandedVariablesAsync(
+                        client,
+                        sb,
+                        varEl,
+                        indent: "  ",
+                        depth: 0,
+                        maxDepth,
+                        maxChildren,
+                        ct)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                sb.AppendLine($"# Partial: stopped by time budget ({timeBudgetMs} ms).");
+                sb.AppendLine("# Tip: use fast=true, lower max_depth/max_children_per_node, and expand specific refs via debug_variable_children.");
+                break;
+            }
         }
 
         return sb.ToString();

@@ -171,15 +171,17 @@ internal static class ToolCatalog
             {
                 Name = "debug_variables",
                 Description =
-                    "Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Тяжёлый кадр: format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 8), max_children_per_node (1..256, по умол. 64). format: text (по умол.) или json — структура с scopes; json_indented по умол. true.",
+                    "Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Для тяжёлых кадров: fast=true, format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 4; fast=true => 0), max_children_per_node (1..256, по умол. 48; fast=true => 24), time_budget_ms (100..10000; по умол. 1800, fast=true => 700). При тайм-бюджете ответ помечается partial.",
                 InputSchema = Schema(new
                 {
                     type = "object",
                     properties = new
                     {
                         frame_index = new { type = "integer", description = "Индекс кадра (0 = верхний). По умолчанию 0." },
-                        max_depth = new { type = "integer", description = "Глубина раскрытия по variablesReference, 0..32, по умол. 8." },
-                        max_children_per_node = new { type = "integer", description = "Макс. детей на узел, 1..256, по умол. 64." },
+                        fast = new { type = "boolean", description = "Быстрый режим (по умолчанию false): max_depth=0 и max_children_per_node=24, если явно не заданы." },
+                        time_budget_ms = new { type = "integer", description = "Бюджет времени на раскрытие переменных, 100..10000 мс (по умол. 1800; fast=true => 700)." },
+                        max_depth = new { type = "integer", description = "Глубина раскрытия по variablesReference, 0..32, по умол. 4 (или 0 в fast=true)." },
+                        max_children_per_node = new { type = "integer", description = "Макс. детей на узел, 1..256, по умол. 48 (или 24 в fast=true)." },
                         format = new { type = "string", description = "text (по умол.) или json — дерево с полями name, value, type, variablesReference, children." },
                         json_indented = new { type = "boolean", description = "Для format=json: многострочный JSON, по умол. true." }
                     },
