@@ -58,7 +58,7 @@
 
 ### `debug_variables`
 
-Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Тяжёлый кадр: format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 8), max_children_per_node (1..256, по умол. 64). format: text (по умол.) или json — структура с scopes; json_indented по умол. true.
+Переменные кадра (DAP variables). Когда остановлены. frame_index (0 = верхний) по debug_stack_trace. Для тяжёлых кадров: fast=true, format=json, малый max_depth, затем дети через debug_variable_children. Лимиты: max_depth (0..32, по умол. 4; fast=true => 0), max_children_per_node (1..256, по умол. 48; fast=true => 24), time_budget_ms (100..10000; по умол. 1800, fast=true => 700). При тайм-бюджете ответ помечается partial.
 
 ### `debug_variable_children`
 

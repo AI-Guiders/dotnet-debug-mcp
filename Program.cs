@@ -3,7 +3,6 @@ using System.Text.Json;
 using DotnetDebugMcp;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-using Tool = ModelContextProtocol.Protocol.Tool;
 
 // MCP-сервер для отладки .NET: DAP + интеграция с Visual Studio (DTE).
 // Сейчас: хранение брейкпоинтов (set/list/clear); DAP launch + continue/next.
@@ -27,6 +26,7 @@ var options = new McpServerOptions
                 : FrozenDictionary<string, JsonElement>.Empty;
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string text = name switch
                 {
                     "debug_ping" => $"OK {DateTime.UtcNow:O} — DotnetDebugMcp. Tools: {string.Join(", ", toolsList.Select(t => t.Name))}.",
@@ -50,6 +50,12 @@ var options = new McpServerOptions
             catch (ArgumentException ex)
             {
                 return new CallToolResult { Content = [new TextContentBlock { Text = $"Error: {ex.Message}" }], IsError = true };
+            }
+            catch (OperationCanceledException)
+            {
+                // Хост MCP отменил вызов (таймаут, закрытие сессии) — не смешиваем с сбоями DAP/netcoredbg.
+                var tag = string.IsNullOrEmpty(name) ? "(unknown)" : name;
+                return new CallToolResult { Content = [new TextContentBlock { Text = $"# Aborted: {tag}" }] };
             }
             catch (Exception ex)
             {
