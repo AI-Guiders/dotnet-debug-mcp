@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "aiguiders.dotnettools.publishfixedtarget": {
+      "version": "0.1.1",
+      "commands": [
+        "aid-publish"
+      ]
+    }
+  }
+}
+

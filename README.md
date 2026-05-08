@@ -21,6 +21,18 @@ dotnet run
 
 ## Публикация exe (для MCP в Cursor)
 
+### Быстрый локальный publish (рекомендуется)
+
+`publish-and-deploy.ps1` делает publish self-contained `win-x64`, зеркалит в фиксированный путь (по умолчанию `D:\dotnet-debug-mcp`) и гасит процесс, если он лочит файлы:
+
+```powershell
+.\publish-and-deploy.ps1
+```
+
+### Релизы (zip + GitLab upload)
+
+`scripts/publish-release-win.ps1` — мультиплатформенный сценарий (win/linux/osx): упаковка в zip и загрузка в GitLab Generic Packages/Release.
+
 ```bash
 dotnet publish DotnetDebugMcp.csproj -c Release -o publish
 ```
