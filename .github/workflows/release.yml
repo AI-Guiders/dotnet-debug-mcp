@@ -1,0 +1,63 @@
+# Зеркало dotnet-debug-core у того же owner.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег для GitHub Release. Пусто — ZIP …-manual-<run_id>-… без релиза.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  RELEASE_RIDS: 'win-x64 linux-x64 osx-x64 osx-arm64'
+  ARTIFACT_PREFIX: DotnetDebugMcp
+  ZIP_LABEL: ${{ github.ref_type == 'tag' && github.ref_name || ((github.event.inputs.tag || '') != '' && github.event.inputs.tag || format('manual-{0}', github.run_id)) }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src/dotnet-debug-mcp
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/dotnet-debug-core
+          path: src/dotnet-debug-core
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish (self-contained) per RID
+        working-directory: src/dotnet-debug-mcp
+        run: |
+          set -euo pipefail
+          mkdir -p ../../dist
+          for rid in ${{ env.RELEASE_RIDS }}; do
+            out="../../publish/${rid}"
+            dotnet publish DotnetDebugMcp.csproj -c Release -r "$rid" --self-contained true -o "$out"
+            (cd "$out" && zip -r "../../dist/${ARTIFACT_PREFIX}-${ZIP_LABEL}-${rid}.zip" .)
+          done
+          (cd "$GITHUB_WORKSPACE/dist" && sha256sum *.zip > SHA256SUMS)
+
+      - name: GitHub Release
+        if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.tag || '') != '') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
