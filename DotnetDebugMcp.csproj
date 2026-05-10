@@ -28,11 +28,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AIGuiders.DotnetDebugMCP.Core" Version="0.1.0" />
     <PackageReference Include="ModelContextProtocol" Version="0.8.0-preview.1" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\dotnet-debug-core\DotnetDebug.Core.csproj" />
   </ItemGroup>
 
 </Project>
