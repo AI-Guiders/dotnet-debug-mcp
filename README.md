@@ -4,6 +4,8 @@
 
 MCP-сервер для отладки .NET (C#) через **DAP** (netcoredbg): брейкпоинты, запуск, стек, переменные, шаги, continue/stop.
 
+**Cursor:** примеры правил для копипаста — **[docs/cursor-rules-examples.md](docs/cursor-rules-examples.md)**.
+
 ## Требования
 
 - .NET 10
