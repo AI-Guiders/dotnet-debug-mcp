@@ -16,6 +16,10 @@ if (-not (Test-Path -LiteralPath $csproj)) {
 
 Push-Location $here
 try {
+    # Keep docs/manifests in sync with ToolCatalog.
+    & dotnet run --project (Join-Path $here "tools\\ExportMcpManifest\\ExportMcpManifest.csproj") -- --write | Out-Null
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     # Prefer local tool (repo-pinned), but global install works too.
     if (Test-Path -LiteralPath (Join-Path $here ".config\\dotnet-tools.json")) {
         & dotnet aid-publish -Project $csproj -Target $Target -Runtime "win-x64" -Configuration "Release" -SelfContained -KillRunning

@@ -22,6 +22,25 @@ internal static class ToolCatalog
         [
             new()
             {
+                Name = "man",
+                Description =
+                    "MCP ops manual for a tool (not shell man). Pass tool=<name> (e.g. debug_launch); omit tool for TOC. Use on first contact / stuck session / before rebuild while debugging — ListTools is capabilities only.",
+                InputSchema = Schema(new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        tool = new
+                        {
+                            type = "string",
+                            description =
+                                "Tool name to document (e.g. debug_launch, debug_stop). Omit or empty for table of contents.",
+                        },
+                    },
+                }),
+            },
+            new()
+            {
                 Name = "debug_ping",
                 Description = "Проверка доступности сервера отладки. Возвращает текущее время и статус.",
                 InputSchema = emptySchema
@@ -94,7 +113,7 @@ internal static class ToolCatalog
             {
                 Name = "debug_launch",
                 Description =
-                    "Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или переменная NETCOREDBG_PATH).",
+                    "Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или NETCOREDBG_PATH). Session graph / stop-before-rebuild: man tool=debug_launch.",
                 InputSchema = Schema(new
                 {
                     type = "object",

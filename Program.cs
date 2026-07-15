@@ -13,6 +13,8 @@ var options = new McpServerOptions
 {
     ServerInfo = new Implementation { Name = "DotnetDebugMcp", Version = "0.3.0" },
     ProtocolVersion = "2024-11-05",
+    ServerInstructions =
+        "Ops: call man tool=<name> (or man for TOC). Before rebuild of a debugged target: debug_stop first (PDB lock). Prefer debug_stop over taskkill of netcoredbg. man is MCP ops manual, not shell.",
     Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = false } },
     Handlers = new McpServerHandlers
     {
@@ -29,6 +31,7 @@ var options = new McpServerOptions
                 cancellationToken.ThrowIfCancellationRequested();
                 string text = name switch
                 {
+                    "man" => ManPages.Resolve(McpArgumentHelpers.TryGetString(args, "tool", out var tool) ? tool : null),
                     "debug_ping" => $"OK {DateTime.UtcNow:O} — DotnetDebugMcp. Tools: {string.Join(", ", toolsList.Select(t => t.Name))}.",
                     "debug_set_breakpoints" => BreakpointToolHandlers.HandleSetBreakpoints(args),
                     "debug_list_breakpoints" => BreakpointToolHandlers.HandleListBreakpoints(args),

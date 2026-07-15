@@ -4,6 +4,10 @@
   "title": "Dotnet Debug MCP",
   "tools": [
     {
+      "name": "man",
+      "description": "MCP ops manual for a tool (not shell man). Pass tool=<name> (e.g. debug_launch); omit tool for TOC. Use on first contact / stuck session / before rebuild while debugging — ListTools is capabilities only."
+    },
+    {
       "name": "debug_ping",
       "description": "Проверка доступности сервера отладки. Возвращает текущее время и статус."
     },
@@ -21,7 +25,7 @@
     },
     {
       "name": "debug_launch",
-      "description": "Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или переменная NETCOREDBG_PATH)."
+      "description": "Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или NETCOREDBG_PATH). Session graph / stop-before-rebuild: man tool=debug_launch."
     },
     {
       "name": "debug_attach",

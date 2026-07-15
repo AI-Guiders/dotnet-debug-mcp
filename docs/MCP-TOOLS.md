@@ -8,6 +8,10 @@
 >
 > Тексты совпадают с полем `description` у инструментов MCP; полная схема — в `inputSchema`.
 
+### `man`
+
+MCP ops manual for a tool (not shell man). Pass tool=<name> (e.g. debug_launch); omit tool for TOC. Use on first contact / stuck session / before rebuild while debugging — ListTools is capabilities only.
+
 ### `debug_ping`
 
 Проверка доступности сервера отладки. Возвращает текущее время и статус.
@@ -26,7 +30,7 @@
 
 ### `debug_launch`
 
-Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или переменная NETCOREDBG_PATH).
+Запустить отладку через netcoredbg (DAP): загрузить сохранённые брейкпоинты для target, запустить программу под отладчиком. Требуется установленный netcoredbg (путь в netcoredbg_path или NETCOREDBG_PATH). Session graph / stop-before-rebuild: man tool=debug_launch.
 
 ### `debug_attach`
 
