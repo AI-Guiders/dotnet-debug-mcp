@@ -23,6 +23,7 @@ public sealed class ManPagesTests
 
     [Theory]
     [InlineData("debug_stop")]
+    [InlineData("debug_stop_context")]
     [InlineData("debug_continue")]
     [InlineData("debug_attach")]
     [InlineData("debug_set_breakpoints")]
@@ -31,5 +32,20 @@ public sealed class ManPagesTests
         var page = ManPages.Resolve(tool);
         Assert.StartsWith("NAME", page, StringComparison.Ordinal);
         Assert.DoesNotContain("Unknown man page", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Toc_lists_stop_context_and_resources()
+    {
+        var toc = ManPages.Resolve(null);
+        Assert.Contains("debug_stop_context", toc, StringComparison.Ordinal);
+        Assert.Contains("debug://state", toc, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Stop_context_page_mentions_round_trip()
+    {
+        var page = ManPages.Resolve("debug_stop_context");
+        Assert.Contains("round-trip", page, StringComparison.OrdinalIgnoreCase);
     }
 }

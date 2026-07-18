@@ -25,8 +25,14 @@ internal static class ManPages
           debug_launch
           debug_attach
           debug_stop
+          debug_stop_context
           debug_continue
           debug_set_breakpoints
+
+        RESOURCES
+          debug://state
+          debug://breakpoints
+          debug://threads
 
         SEE ALSO
           Server instructions on initialize; host rebuild only AFTER debug_stop.
@@ -42,12 +48,12 @@ internal static class ManPages
             SYNOPSIS
               debug_set_breakpoints workspace_path=… target_path=… breakpoints=[…]
               debug_launch workspace_path=… target_path=… [netcoredbg_path] [program_args]
-              → wait stopped → debug_stack_trace / debug_variables → debug_continue | debug_stop
+              → wait stopped → debug_stop_context (or stack/variables) → debug_continue | debug_stop
 
             SESSION GRAPH (usual)
               1) set breakpoints (JSON under workspace; key = target_path)
               2) debug_launch (loads those BPs for the same target_path)
-              3) on stopped: stack / variables / step_* as needed
+              3) on stopped: prefer debug_stop_context; else stack / variables / step_*
               4) debug_continue to run again, OR debug_stop to end session
 
             WHY STOP BEFORE REBUILD
@@ -61,6 +67,7 @@ internal static class ManPages
               call step_* / variables / stack while not stopped
 
             SEE ALSO
+              man tool=debug_stop_context
               man tool=debug_stop
               man tool=debug_continue
               man tool=debug_attach
@@ -80,11 +87,12 @@ internal static class ManPages
 
             NOTES
               Optional target_path loads saved breakpoints for that target key.
-              Same session rules as launch: stop → inspect → continue | debug_stop.
+              Same session rules as launch: stop → debug_stop_context → continue | debug_stop.
               Rebuild of target binaries still requires debug_stop first (PDB lock).
 
             SEE ALSO
               man tool=debug_launch
+              man tool=debug_stop_context
               man tool=debug_stop
             """,
 
@@ -113,6 +121,27 @@ internal static class ManPages
             SEE ALSO
               man tool=debug_launch
               man tool=debug_continue
+            """,
+
+        ["debug_stop_context"] =
+            """
+            NAME
+              debug_stop_context — stack + variables in one call after stopped.
+
+            SYNOPSIS
+              debug_stop_context [frame_index] [fast] [max_depth] [max_children_per_node] [time_budget_ms] [format]
+
+            WHEN
+              Target is stopped (breakpoint / exception). Prefer this over separate
+              debug_stack_trace + debug_variables to cut round-trips.
+
+            NOTES
+              Variable args match debug_variables. Resources debug://state|breakpoints|threads
+              give lighter snapshots without a tool call.
+
+            SEE ALSO
+              man tool=debug_launch
+              debug_stack_trace / debug_variables
             """,
 
         ["debug_continue"] =

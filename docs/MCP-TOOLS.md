@@ -56,6 +56,10 @@ MCP ops manual for a tool (not shell man). Pass tool=<name> (e.g. debug_launch);
 
 Завершить текущую отладочную сессию (dispose DAP-клиент, освободить ресурсы). После вызова нужен новый debug_launch для отладки.
 
+### `debug_stop_context`
+
+После stopped: одним вызовом thread/exception + stack + variables (меньше round-trip). Args как у debug_variables: frame_index, fast, max_depth, max_children_per_node, time_budget_ms, format, json_indented. Inspired by peer MIT stop-context; not a code port.
+
 ### `debug_stack_trace`
 
 Стек вызовов текущего потока (DAP stackTrace). Вызывать когда выполнение остановлено на брейкпоинте. Возвращает кадры: имя, файл, строка. Опционально frame_index для debug_variables.

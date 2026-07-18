@@ -2,7 +2,9 @@
 
 **Автор:** Дмитрий Каратаев (Dmitry Karataev)
 
-MCP-сервер для отладки .NET (C#) через **DAP** (netcoredbg): брейкпоинты, запуск, стек, переменные, шаги, continue/stop.
+MCP-сервер для отладки .NET (C#) через **DAP** (netcoredbg): брейкпоинты, запуск, стек, переменные, шаги, continue/stop, **`debug_stop_context`**, read-only resources `debug://state|breakpoints|threads`.
+
+Agent UX (stop-context / debug://*) inspired by peer MIT [thebtf/netcoredbg-mcp](https://github.com/thebtf/netcoredbg-mcp) — idea only, not a code port.
 
 **Cursor:** примеры правил для копипаста — **[docs/cursor-rules-examples.md](docs/cursor-rules-examples.md)**.
 
@@ -64,8 +66,19 @@ dotnet run --project tools/ExportMcpManifest -- --write
 | **debug_step_into** | Шаг в вызов (DAP stepIn). |
 | **debug_step_out** | Шаг из кадра (DAP stepOut). |
 | **debug_stop** | Завершить сессию (dispose клиента). |
+| **debug_stop_context** | После stopped: одним вызовом thread/exception + stack + variables (меньше round-trip). Args как у `debug_variables`. |
 | **debug_stack_trace** | Стек вызовов текущего потока (DAP stackTrace). При необходимости сервер ждёт остановки (до 5 с) и повторяет запрос при временных ошибках. |
 | **debug_variables** | Переменные кадра (frame_index=0 по умолчанию). Сначала запрос **scopes** по frameId, затем **variables** по variablesReference каждого scope (netcoredbg отдаёт переменные через scopes); при ошибке — fallback на variables(frameId). |
+
+## MCP Resources (read-only)
+
+Inspired by peer MIT `debug://*` snapshots — not a code port.
+
+| URI | Содержимое |
+|-----|------------|
+| `debug://state` | active, threadId, workspace/target, exception |
+| `debug://breakpoints` | сохранённые BP для текущего workspace(+target) |
+| `debug://threads` | DAP threads при активной сессии |
 
 ## Рекомендации по отладке
 
@@ -78,11 +91,10 @@ dotnet run --project tools/ExportMcpManifest -- --write
 
 1. `debug_set_breakpoints` — workspace_path, target_path (путь к .dll), breakpoints: [{ file_path, line: 7 }].
 2. `debug_launch` — те же workspace_path, target_path; при необходимости program_args.
-3. `debug_stack_trace` → стек.
-4. `debug_variables` → переменные (Locals и др. по scopes).
-5. `debug_step_over` → следующий шаг.
-6. `debug_continue` → продолжить.
-7. `debug_stop` → завершить сессию.
+3. `debug_stop_context` → стек + переменные одним вызовом (или отдельно stack_trace / variables).
+4. `debug_step_over` → следующий шаг.
+5. `debug_continue` → продолжить.
+6. `debug_stop` → завершить сессию.
 
 ## Поведение
 
