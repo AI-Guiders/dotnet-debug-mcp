@@ -48,11 +48,7 @@ internal static class DebugLaunchToolHandlers
         client.OnConnectionLost = () =>
         {
             if (DebugSession.CurrentClient == client)
-            {
-                DebugSession.CurrentClient = null;
-                DebugSession.LastStoppedThreadId = 0;
-                DebugSession.LastExceptionText = null;
-            }
+                DebugSession.Clear();
         };
         DebugSession.PrepareStoppedWait();
         var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -92,6 +88,8 @@ internal static class DebugLaunchToolHandlers
         }
 
         DebugSession.CurrentClient = client;
+        DebugSession.WorkspacePath = workspacePath!.Trim();
+        DebugSession.TargetPath = targetPath!.Trim();
 
         var stopped = DebugSession.LastStoppedThreadId != 0;
         if (!stopped)
@@ -123,10 +121,10 @@ internal static class DebugLaunchToolHandlers
             ? "# Exception breakpoints: unhandled (stop on throw)"
             : "# Exception breakpoints: skipped (adapter rejected setExceptionBreakpoints; some netcoredbg builds return 0x80070057)");
         if (!stopped)
-            sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops, or check that the target hits a breakpoint. First thread id used as fallback if available.)");
+            sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use debug_stop_context / stack_trace after it stops, or check that the target hits a breakpoint. First thread id used as fallback if available.)");
         else if (DebugSession.LastExceptionText is { } exMsg)
             sb.AppendLine($"# Stopped on exception: {exMsg}");
-        sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
+        sb.AppendLine("# Prefer debug_stop_context after stopped; or debug_continue / debug_step_over.");
         return sb.ToString();
     }
 
@@ -161,11 +159,7 @@ internal static class DebugLaunchToolHandlers
         client.OnConnectionLost = () =>
         {
             if (DebugSession.CurrentClient == client)
-            {
-                DebugSession.CurrentClient = null;
-                DebugSession.LastStoppedThreadId = 0;
-                DebugSession.LastExceptionText = null;
-            }
+                DebugSession.Clear();
         };
         DebugSession.PrepareStoppedWait();
         var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -205,6 +199,8 @@ internal static class DebugLaunchToolHandlers
         }
 
         DebugSession.CurrentClient = client;
+        DebugSession.WorkspacePath = workspacePath!.Trim();
+        DebugSession.TargetPath = !string.IsNullOrWhiteSpace(targetPath) ? targetPath.Trim() : null;
 
         var stopped = DebugSession.LastStoppedThreadId != 0;
         if (!stopped)
@@ -236,10 +232,10 @@ internal static class DebugLaunchToolHandlers
             ? "# Exception breakpoints: unhandled (stop on throw)"
             : "# Exception breakpoints: skipped (adapter rejected setExceptionBreakpoints; some netcoredbg builds return 0x80070057)");
         if (!stopped)
-            sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use stack_trace/step_* after it stops.)");
+            sb.AppendLine("# (Wait for breakpoint timed out — call debug_continue then use debug_stop_context / stack_trace after it stops.)");
         else if (DebugSession.LastExceptionText is { } exMsg)
             sb.AppendLine($"# Stopped on exception: {exMsg}");
-        sb.AppendLine("# Use debug_continue or debug_step_over to control execution.");
+        sb.AppendLine("# Prefer debug_stop_context after stopped; or debug_continue / debug_step_over.");
         return sb.ToString();
     }
 }

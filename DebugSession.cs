@@ -2,16 +2,30 @@ using DotnetDebug.Core;
 
 namespace DotnetDebugMcp;
 
-/// <summary>Текущая активная отладочная сессия после debug_launch. Очередь ожидания stopped + ретраи в тулах.</summary>
+/// <summary>Текущая активная отладочная сессия после debug_launch/attach. Очередь ожидания stopped + ретраи в тулах.</summary>
 internal static class DebugSession
 {
     public static DapClient? CurrentClient { get; set; }
     public static int LastStoppedThreadId { get; set; }
     /// <summary>Текст последнего исключения при остановке по reason=exception (для вывода агенту).</summary>
     public static string? LastExceptionText { get; set; }
+    /// <summary>Workspace из последнего launch/attach (для MCP resources).</summary>
+    public static string? WorkspacePath { get; set; }
+    /// <summary>Target key из последнего launch/attach (для breakpoints resource).</summary>
+    public static string? TargetPath { get; set; }
 
     private static TaskCompletionSource? _currentStoppedTcs;
     private static readonly object StoppedLock = new();
+
+    /// <summary>Сбросить клиент и метаданные сессии (stop / connection lost).</summary>
+    public static void Clear()
+    {
+        CurrentClient = null;
+        LastStoppedThreadId = 0;
+        LastExceptionText = null;
+        WorkspacePath = null;
+        TargetPath = null;
+    }
 
     /// <summary>Вызвать при старте сессии: создаёт TCS для ожидания следующего stopped.</summary>
     public static void PrepareStoppedWait()
