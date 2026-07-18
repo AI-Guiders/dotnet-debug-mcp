@@ -4,21 +4,27 @@ using DotnetDebugMcp;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
-// MCP-сервер для отладки .NET: DAP + интеграция с Visual Studio (DTE).
-// Сейчас: хранение брейкпоинтов (set/list/clear); DAP launch + continue/next.
+// MCP-сервер для отладки .NET через DAP (netcoredbg).
+// Agent UX: debug_stop_context + read-only debug:// resources (inspired by peer MIT; not a code port).
 
 var toolsList = ToolCatalog.Build();
 
 var options = new McpServerOptions
 {
-    ServerInfo = new Implementation { Name = "DotnetDebugMcp", Version = "0.3.0" },
+    ServerInfo = new Implementation { Name = "DotnetDebugMcp", Version = "0.4.1" },
     ProtocolVersion = "2024-11-05",
     ServerInstructions =
-        "Ops: call man tool=<name> (or man for TOC). Before rebuild of a debugged target: debug_stop first (PDB lock). Prefer debug_stop over taskkill of netcoredbg. man is MCP ops manual, not shell.",
-    Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = false } },
+        "Ops: call man tool=<name> (or man for TOC). After stopped prefer debug_stop_context. Before rebuild of a debugged target: debug_stop first (PDB lock). Prefer debug_stop over taskkill of netcoredbg. Resources: debug://state|breakpoints|threads. man is MCP ops manual, not shell.",
+    Capabilities = new ServerCapabilities
+    {
+        Tools = new ToolsCapability { ListChanged = false },
+        Resources = new ResourcesCapability { Subscribe = false, ListChanged = false },
+    },
     Handlers = new McpServerHandlers
     {
         ListToolsHandler = (_, _) => ValueTask.FromResult(new ListToolsResult { Tools = toolsList }),
+        ListResourcesHandler = DebugResourceHandlers.ListAsync,
+        ReadResourceHandler = DebugResourceHandlers.ReadAsync,
 
         CallToolHandler = async (request, cancellationToken) =>
         {
@@ -43,6 +49,7 @@ var options = new McpServerOptions
                     "debug_step_into" => await DebugControlToolHandlers.HandleDebugStepInto(args),
                     "debug_step_out" => await DebugControlToolHandlers.HandleDebugStepOut(args),
                     "debug_stop" => await DebugControlToolHandlers.HandleDebugStop(args),
+                    "debug_stop_context" => await DebugControlToolHandlers.HandleDebugStopContext(args),
                     "debug_stack_trace" => await DebugControlToolHandlers.HandleDebugStackTrace(args),
                     "debug_variables" => await DebugControlToolHandlers.HandleDebugVariables(args),
                     "debug_variable_children" => await DebugControlToolHandlers.HandleDebugVariableChildren(args),

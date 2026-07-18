@@ -181,6 +181,27 @@ internal static class ToolCatalog
             },
             new()
             {
+                Name = "debug_stop_context",
+                Description =
+                    "После stopped: одним вызовом thread/exception + stack + variables (меньше round-trip). Args как у debug_variables: frame_index, fast, max_depth, max_children_per_node, time_budget_ms, format, json_indented. Inspired by peer MIT stop-context; not a code port.",
+                InputSchema = Schema(new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        frame_index = new { type = "integer", description = "Индекс кадра (0 = верхний). По умолчанию 0." },
+                        fast = new { type = "boolean", description = "Быстрый режим (по умолчанию false): max_depth=0 и max_children_per_node=24, если явно не заданы." },
+                        time_budget_ms = new { type = "integer", description = "Бюджет времени на раскрытие переменных, 100..10000 мс (по умол. 1800; fast=true => 700)." },
+                        max_depth = new { type = "integer", description = "Глубина раскрытия по variablesReference, 0..32, по умол. 4 (или 0 в fast=true)." },
+                        max_children_per_node = new { type = "integer", description = "Макс. детей на узел, 1..256, по умол. 48 (или 24 в fast=true)." },
+                        format = new { type = "string", description = "text (по умол.) или json — дерево переменных как у debug_variables." },
+                        json_indented = new { type = "boolean", description = "Для format=json: многострочный JSON, по умол. true." }
+                    },
+                    required = Array.Empty<string>()
+                })
+            },
+            new()
+            {
                 Name = "debug_stack_trace",
                 Description =
                     "Стек вызовов текущего потока (DAP stackTrace). Вызывать когда выполнение остановлено на брейкпоинте. Возвращает кадры: имя, файл, строка. Опционально frame_index для debug_variables.",

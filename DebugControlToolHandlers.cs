@@ -49,12 +49,34 @@ internal static class DebugControlToolHandlers
         if (client == null)
             return "# No active debug session; nothing to stop.";
         var threadId = DebugSession.LastStoppedThreadId;
-        DebugSession.CurrentClient = null;
-        DebugSession.LastStoppedThreadId = 0;
+        DebugSession.Clear();
         if (threadId != 0)
-            try { await client.ContinueAsync(threadId).ConfigureAwait(false); } catch { /* целевой процесс продолжит выполнение перед отключением */ }
+            try { await client.ContinueAsync(threadId).ConfigureAwait(false); } catch { /* целевой процесс продолжит работу перед отключением */ }
         await client.DisposeAsync().ConfigureAwait(false);
         return "# Debug session stopped; target resumed, client disposed.";
+    }
+
+    /// <summary>
+    /// Один ответ после stopped — делегирует в <see cref="DapStopContext"/> (Core; shared with CIDE in-proc).
+    /// </summary>
+    internal static async Task<string> HandleDebugStopContext(IReadOnlyDictionary<string, JsonElement> args)
+    {
+        try
+        {
+            await DebugSession.WaitForStoppedAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
+        }
+
+        var (client, _) = DapHelpers.GetSessionAndThreadId();
+        var meta = new DapStopContextMeta(
+            DebugSession.LastStoppedThreadId,
+            DebugSession.WorkspacePath,
+            DebugSession.TargetPath,
+            DebugSession.LastExceptionText);
+        return await DapStopContext.FormatMarkdownAsync(client, meta, ParseFrameOptions(args)).ConfigureAwait(false);
     }
 
     internal static async Task<string> HandleDebugStackTrace(IReadOnlyDictionary<string, JsonElement> _)
@@ -68,32 +90,7 @@ internal static class DebugControlToolHandlers
             return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
         }
         var (client, threadId) = DapHelpers.GetSessionAndThreadId();
-        JsonElement? body;
-        try
-        {
-            body = await DapHelpers.WithRetryAsync(() => client.StackTraceAsync(threadId)).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return "# " + ex.Message;
-        }
-        if (body == null || !body.Value.TryGetProperty("stackFrames", out var frames))
-            return "# No stack frames.";
-        var sb = new StringBuilder();
-        sb.AppendLine("# Stack trace");
-        var i = 0;
-        foreach (var f in frames.EnumerateArray())
-        {
-            var name = f.TryGetProperty("name", out var n) ? n.GetString() : "?";
-            var line = f.TryGetProperty("line", out var ln) ? ln.GetInt32() : 0;
-            var path = "";
-            if (f.TryGetProperty("source", out var src) && src.TryGetProperty("path", out var p))
-                path = p.GetString() ?? "";
-            var id = f.TryGetProperty("id", out var idEl) ? idEl.GetInt32() : 0;
-            sb.AppendLine($"  [{i}] {name} — {path}:{line} (id={id})");
-            i++;
-        }
-        return sb.ToString();
+        return await DapFrameInspection.FormatStackTraceMarkdownAsync(client, threadId).ConfigureAwait(false);
     }
 
     internal static async Task<string> HandleDebugVariables(IReadOnlyDictionary<string, JsonElement> args)
@@ -107,161 +104,34 @@ internal static class DebugControlToolHandlers
             return "# Timeout (5s) waiting for execution to stop. Run debug_continue and try again after the next break.";
         }
         var (client, threadId) = DapHelpers.GetSessionAndThreadId();
+        return await DapFrameInspection.FormatVariablesAsync(client, threadId, ParseFrameOptions(args)).ConfigureAwait(false);
+    }
+
+    static DapFrameInspectionOptions ParseFrameOptions(IReadOnlyDictionary<string, JsonElement> args)
+    {
         var frameIndex = 0;
         if (args.TryGetValue("frame_index", out var fiEl) && fiEl.ValueKind == JsonValueKind.Number && fiEl.TryGetInt32(out var fi))
             frameIndex = fi;
         var fast = args.TryGetValue("fast", out var fastEl) && fastEl.ValueKind == JsonValueKind.True;
         var maxDepthDefault = fast ? 0 : DapVariableExpansion.DefaultMaxDepth;
         var maxChildrenDefault = fast ? 24 : DapVariableExpansion.DefaultMaxChildrenPerNode;
-        var maxDepth = McpArgumentHelpers.GetOptionalClampedInt32(
-            args,
-            "max_depth",
-            maxDepthDefault,
-            min: 0,
-            max: 32);
-        var maxChildren = McpArgumentHelpers.GetOptionalClampedInt32(
-            args,
-            "max_children_per_node",
-            maxChildrenDefault,
-            min: 1,
-            max: 256);
-        var timeBudgetMs = McpArgumentHelpers.GetOptionalClampedInt32(
-            args,
-            "time_budget_ms",
-            fast ? 700 : 1800,
-            min: 100,
-            max: 10000);
+        var maxDepth = McpArgumentHelpers.GetOptionalClampedInt32(args, "max_depth", maxDepthDefault, min: 0, max: 32);
+        var maxChildren = McpArgumentHelpers.GetOptionalClampedInt32(args, "max_children_per_node", maxChildrenDefault, min: 1, max: 256);
+        var timeBudgetMs = McpArgumentHelpers.GetOptionalClampedInt32(args, "time_budget_ms", fast ? 700 : 1800, min: 100, max: 10000);
         var formatJson = args.TryGetValue("format", out var fmtEl) &&
             fmtEl.ValueKind == JsonValueKind.String &&
             string.Equals(fmtEl.GetString(), "json", StringComparison.OrdinalIgnoreCase);
         var jsonIndented = !args.TryGetValue("json_indented", out var jindEl) || jindEl.ValueKind != JsonValueKind.False;
-        using var budgetCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeBudgetMs));
-        var ct = budgetCts.Token;
-
-        JsonElement? stackBody;
-        try
+        return new DapFrameInspectionOptions
         {
-            stackBody = await DapHelpers.WithRetryAsync(() => client.StackTraceAsync(threadId)).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return "# " + ex.Message;
-        }
-        if (stackBody == null || !stackBody.Value.TryGetProperty("stackFrames", out var frames))
-            return "# No stack; run debug_stack_trace first or ensure stopped.";
-        var frameList = frames.EnumerateArray().ToList();
-        if (frameIndex < 0 || frameIndex >= frameList.Count)
-            return $"# frame_index {frameIndex} out of range (0..{frameList.Count - 1}).";
-        var frame = frameList[frameIndex];
-        if (!frame.TryGetProperty("id", out var idEl))
-            return "# Frame has no id.";
-        var frameId = idEl.GetInt32();
-        var scopeBlocks = new List<(string Name, JsonElement Variables)>();
-        var usedScopes = false;
-        try
-        {
-            var scopesBody = await DapHelpers.WithRetryAsync(() => client.ScopesAsync(frameId)).ConfigureAwait(false);
-            if (scopesBody != null && scopesBody.Value.TryGetProperty("scopes", out var scopesArr))
-            {
-                foreach (var scope in scopesArr.EnumerateArray())
-                {
-                    if (!scope.TryGetProperty("variablesReference", out var vrefEl) || !vrefEl.TryGetInt32(out var vref) || vref == 0)
-                        continue;
-                    var scopeName = scope.TryGetProperty("name", out var sn) ? sn.GetString() : "?";
-                    var varsBody = await DapHelpers.WithRetryAsync(() => client.VariablesAsync(vref)).ConfigureAwait(false);
-                    if (varsBody == null || !varsBody.Value.TryGetProperty("variables", out var vars))
-                        continue;
-                    usedScopes = true;
-                    scopeBlocks.Add((scopeName ?? "?", vars));
-                }
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            // scopes не поддерживается — ниже direct variables
-        }
-
-        if (!usedScopes)
-        {
-            JsonElement? varsBody;
-            try
-            {
-                varsBody = await DapHelpers.WithRetryAsync(() => client.VariablesAsync(frameId)).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return "# " + ex.Message;
-            }
-            if (varsBody == null || !varsBody.Value.TryGetProperty("variables", out var vars))
-                return "# No variables for this frame (tried scopes and direct variables).";
-            scopeBlocks.Add(("variables", vars));
-        }
-
-        if (scopeBlocks.Count == 0)
-            return "# No variable scopes for this frame.";
-
-        var partial = false;
-        string? partialNote = null;
-
-        if (formatJson)
-        {
-            var built = new List<(string ScopeName, IReadOnlyList<DapVariableTreeNode> Roots)>(scopeBlocks.Count);
-            foreach (var (name, varEl) in scopeBlocks)
-            {
-                try
-                {
-                    var tree = await DapVariableExpansion
-                        .BuildExpandedTreeAsync(client, varEl, maxDepth, maxChildren, ct)
-                        .ConfigureAwait(false);
-                    built.Add((name, tree));
-                }
-                catch (OperationCanceledException)
-                {
-                    partial = true;
-                    partialNote = $"Stopped by time budget ({timeBudgetMs} ms). Use fast=true, lower max_depth/max_children_per_node, or inspect via debug_variable_children.";
-                    break;
-                }
-            }
-
-            return DapVariableExpansion.SerializeFrameVariablesDocumentToJson(
-                frameIndex,
-                maxDepth,
-                maxChildren,
-                built,
-                partial,
-                partialNote,
-                jsonIndented);
-        }
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"# Variables (frame {frameIndex})");
-        sb.AppendLine($"# (max_depth={maxDepth}, max_children_per_node={maxChildren}, time_budget_ms={timeBudgetMs}, fast={fast.ToString().ToLowerInvariant()})");
-        foreach (var (name, varEl) in scopeBlocks)
-        {
-            sb.AppendLine($"## {name}");
-            try
-            {
-                await DapVariableExpansion
-                    .AppendExpandedVariablesAsync(
-                        client,
-                        sb,
-                        varEl,
-                        indent: "  ",
-                        depth: 0,
-                        maxDepth,
-                        maxChildren,
-                        ct)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                sb.AppendLine($"# Partial: stopped by time budget ({timeBudgetMs} ms).");
-                sb.AppendLine("# Tip: use fast=true, lower max_depth/max_children_per_node, and expand specific refs via debug_variable_children.");
-                break;
-            }
-        }
-
-        return sb.ToString();
+            FrameIndex = frameIndex,
+            Fast = fast,
+            MaxDepth = maxDepth,
+            MaxChildrenPerNode = maxChildren,
+            TimeBudgetMs = timeBudgetMs,
+            FormatJson = formatJson,
+            JsonIndented = jsonIndented,
+        };
     }
 
     /// <summary>Один уровень детей по <c>variablesReference</c> (без рекурсии); тяжёлый кадр — сначала <c>debug_variables</c> с format=json и малым max_depth, потом сюда.</summary>
