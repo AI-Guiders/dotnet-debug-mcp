@@ -56,7 +56,7 @@ internal static class ToolCatalog
                     properties = new
                     {
                         workspace_path = new { type = "string", description = "Каталог проекта/решения (здесь создаётся файл с брейкпоинтами)." },
-                        target_path = new { type = "string", description = "Путь к .csproj или exe — ключ для списка брейкпоинтов (при launch будем использовать этот target)." },
+                        target_path = new { type = "string", description = "Путь к .csproj (ключ брейкпоинтов) или .dll/.exe. При .csproj launch резолвит newest *.dll под bin/." },
                         breakpoints = new
                         {
                             type = "array",

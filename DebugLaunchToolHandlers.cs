@@ -22,11 +22,15 @@ internal static class DebugLaunchToolHandlers
         var workspaceRoot = Path.GetFullPath(workspacePath!.Trim());
         if (File.Exists(workspaceRoot))
             workspaceRoot = Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot;
-        var programPath = Path.IsPathRooted(targetPath!.Trim())
+        var targetFull = Path.IsPathRooted(targetPath!.Trim())
             ? Path.GetFullPath(targetPath)
             : Path.GetFullPath(Path.Combine(workspaceRoot, targetPath.Trim()));
-        if (!File.Exists(programPath))
-            throw new ArgumentException($"Target not found: {programPath}");
+        if (!File.Exists(targetFull))
+            throw new ArgumentException($"Target not found: {targetFull}");
+
+        // BP storage keys on csproj (or explicit binary); DAP Launch needs dll/exe.
+        var programPath = LaunchTargetResolver.ResolveBinary(targetFull);
+        var cwd = LaunchTargetResolver.ResolveWorkingDirectory(targetFull, programPath);
 
         var breakpoints = BreakpointsStorage.GetBreakpoints(workspacePath!, targetPath!).ToList();
         var byFile = breakpoints
@@ -67,7 +71,7 @@ internal static class DebugLaunchToolHandlers
         var exceptionBpsOk = false;
         try
         {
-            await client.LaunchAsync(programPath, Path.GetDirectoryName(programPath), programArgs).ConfigureAwait(false);
+            await client.LaunchAsync(programPath, cwd, programArgs).ConfigureAwait(false);
             foreach (var (file, list) in byFile)
             {
                 if (list.Count > 0)
@@ -115,7 +119,9 @@ internal static class DebugLaunchToolHandlers
 
         var sb = new StringBuilder();
         sb.AppendLine("# Debug session started");
+        sb.AppendLine($"# Target (BP key): {targetFull}");
         sb.AppendLine($"# Program: {programPath}");
+        sb.AppendLine($"# Cwd: {cwd}");
         sb.AppendLine($"# Breakpoints: {breakpoints.Count} applied");
         sb.AppendLine(exceptionBpsOk
             ? "# Exception breakpoints: unhandled (stop on throw)"
