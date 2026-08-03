@@ -14,6 +14,12 @@ internal static class DebugSession
     /// <summary>Target key из последнего launch/attach (для breakpoints resource).</summary>
     public static string? TargetPath { get; set; }
 
+    /// <summary>Optional host hook after DAP stopped (CIDE latch / Glass live).</summary>
+    public static Action<int, string?>? StoppedHook { get; set; }
+
+    /// <summary>Optional host hook after DAP continued.</summary>
+    public static Action? ContinuedHook { get; set; }
+
     private static TaskCompletionSource? _currentStoppedTcs;
     private static readonly object StoppedLock = new();
 
@@ -47,6 +53,9 @@ internal static class DebugSession
             _currentStoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             t?.TrySetResult();
         }
+
+        try { StoppedHook?.Invoke(threadId, exceptionText); }
+        catch { /* host latch best-effort */ }
     }
 
     /// <summary>Вызывается при событии continued — следующий stack_trace/step будет ждать нового stopped.</summary>
@@ -54,6 +63,8 @@ internal static class DebugSession
     {
         LastStoppedThreadId = 0;
         LastExceptionText = null;
+        try { ContinuedHook?.Invoke(); }
+        catch { /* host latch best-effort */ }
     }
 
     /// <summary>Ждать следующего события stopped (или вернуться сразу, если уже paused). Таймаут — исключение TimeoutException.</summary>
