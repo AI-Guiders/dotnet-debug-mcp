@@ -1,0 +1,9 @@
+[workspace.adr]
+auto_include = "linked"
+max_related = 8
+root_dir = "docs"
+id_regex = '(?:^|/)docs/(?<id>[A-Za-z0-9][^/]*?)(?:\.md)?'
+
+[workspace.adr.map]
+"*" = ["docs/MCP-TOOLS.md", "README.md"]
+
